@@ -169,9 +169,17 @@
     moodTransitionTime: 0.6,
     lineColor: '#ffffff', pupilColor: '#ffffff',
     baseColor: '#ffffff', fadeColor: '#000000', depthFade: 0.0,
+    // exponent applied to the per-vertex fade weight. >1 darkens the back
+    // faster (so silhouette edges actually reach fadeColor in wire mode);
+    // <1 brightens it. 1.0 = linear, original behavior.
+    depthFadeCurve: 1.0,
     irisColor: '#000000', irisSize: 1.6,
     browColor: '#ffffff',
     jawExtend: 0.0, mouthGrow: 0.0,
+    // experimental — static z push of upper-mouth and lower-jaw regions for
+    // animal / crocodile-mouth distortions. Stack on top of jawExtend (which
+    // is jawOpen-driven). Default 0 = current behavior.
+    upperJawProtrude: 0.0, lowerJawProtrude: 0.0,
     cameraView: 'three-q', // initial view
   };
 
@@ -311,8 +319,12 @@
       let z = (1 - xRel*xRel * 0.55 - yRel*yRel * 0.55) * 0.22;
       if (z < -0.05) z = -0.05;
 
-      // eye sockets recess (gaussian — broad and bowl-shaped)
-      const eyeY = 0.30;
+      // eye sockets recess (gaussian — broad and bowl-shaped).
+      // Centered at yRel=0.20 → UV v=0.40 to align with the eye opening
+      // (eye-hole puncture, minimal-line eyelid overlay, eye_blink shapes
+      // are all at v=0.40). Original v011 used yRel=0.30 which placed the
+      // bowl above the eye opening.
+      const eyeY = 0.20;
       const eyeL_d = ((xRel + 0.45) / 0.30) ** 2 + ((yRel - eyeY) / 0.18) ** 2;
       const eyeR_d = ((xRel - 0.45) / 0.30) ** 2 + ((yRel - eyeY) / 0.18) ** 2;
       const eyeRecess = 0.045 * config.eyeDepth;
@@ -732,6 +744,45 @@
       }
     }
 
+    /* Static jaw-protrude passes — push the upper-mouth and lower-jaw
+       regions forward (z+) independent of jawOpen. Used together they
+       form the snout / animal / crocodile-mouth distortion. Each is a
+       smooth tent ramp in v-space:
+         - upper: peaks at v=0.62 (just above the mouth), tapers off by
+           v=0.45 (top) and v=0.72 (mouth line)
+         - lower: peaks at v=0.85 (chin tip), tapers off by v=0.70 (mouth)
+           and v=1.0 (bottom of grid)
+       Magnitude is `protrude * 0.18` for both — at amt=3 (slider max),
+       lower jaw juts forward ~0.54 z-units which is comparable to the
+       nose tip's z=0.22, giving a clearly elongated jaw silhouette. */
+    function applyUpperJawProtrude(disp) {
+      const amt = config.upperJawProtrude;
+      if (amt < 0.001) return;
+      const push = amt * 0.18;
+      for (let i = 0; i < baseUVs.length; i++) {
+        const v = baseUVs[i].v;
+        if (v < 0.45 || v > 0.72) continue;
+        // tent: 0 at edges, 1 at v=0.62
+        const w = v < 0.62 ? (v - 0.45) / 0.17 : (0.72 - v) / 0.10;
+        disp[i].z += push * w;
+      }
+    }
+    function applyLowerJawProtrude(disp) {
+      const amt = config.lowerJawProtrude;
+      if (amt < 0.001) return;
+      const push = amt * 0.18;
+      for (let i = 0; i < baseUVs.length; i++) {
+        const v = baseUVs[i].v;
+        if (v < 0.70) continue;
+        // tent: 0 at v=0.70, 1 at v=0.85, tapers to 0.5 at v=1.0
+        let w;
+        if (v < 0.85) w = (v - 0.70) / 0.15;
+        else          w = 1 - (v - 0.85) / 0.30;   // ramp down past chin tip
+        if (w < 0) w = 0;
+        disp[i].z += push * w;
+      }
+    }
+
     function applyMouthAnchors(disp) {
       if (!config.mouthAnchor) return;
       const p = computeMouthParams();
@@ -1045,6 +1096,8 @@
       applyFeatureScales(_dispBuf);
       applyJawExtension(_dispBuf);
       applyMouthGrow(_dispBuf);
+      applyUpperJawProtrude(_dispBuf);
+      applyLowerJawProtrude(_dispBuf);
       applyMouthAnchors(_dispBuf);
       applyEyeAnchors(_dispBuf);
       // write final positions
@@ -1054,12 +1107,20 @@
         _posBuf[3*i+2] = baseVertices[i].z + _dispBuf[i].z;
       }
       mesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, _posBuf);
-      // depth fade colors
+      // depth fade colors. raw t = (zMax - z) / zRange, then exponentiated by
+      // depthFadeCurve. >1 darkens back faster (so silhouette edges actually
+      // hit fadeColor in wire mode despite line interpolation lifting them);
+      // <1 brightens back. Then scaled by depthFade.
       if (config.depthFade > 0.001) {
-        const zRange = (_zMax - _zMin) || 1, f = config.depthFade;
+        const zRange = (_zMax - _zMin) || 1;
+        const f = config.depthFade;
+        const curve = config.depthFadeCurve > 0 ? config.depthFadeCurve : 1;
         for (let i = 0; i < baseVertices.length; i++) {
           const z = _posBuf[3*i + 2];
-          const t = Math.max(0, Math.min(1, (_zMax - z) / zRange)) * f;
+          let t = (_zMax - z) / zRange;
+          if (t < 0) t = 0; else if (t > 1) t = 1;
+          if (curve !== 1) t = Math.pow(t, curve);
+          t *= f;
           _colBuf[4*i  ] = _baseRGB[0] * (1 - t) + _fadeRGB[0] * t;
           _colBuf[4*i+1] = _baseRGB[1] * (1 - t) + _fadeRGB[1] * t;
           _colBuf[4*i+2] = _baseRGB[2] * (1 - t) + _fadeRGB[2] * t;

@@ -10,3 +10,11 @@ dist/
 .vscode/
 .idea/
 package-lock.json
+# playwright + screenshot test artifacts (generated during visual verification)
+.playwright-mcp/
+/eyeholes-*.png
+/editor-*.png
+/depthfade-*.png
+/v011-*.png
+/v110-*.png
+/final-*.png
