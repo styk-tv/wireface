@@ -285,36 +285,58 @@
     const minimalGroup = new BABYLON.TransformNode('minimal', scene);
     minimalGroup.parent = faceRoot;
 
-    /* ─── 4a. parametric warp (u,v) → 3D face surface ─── */
+    /* ─── 4a. parametric warp: grid (u,v) → face surface (x,y,z) ───
+       Ported verbatim from the v011 editor. Uses an elliptical taper so the
+       silhouette is oval, not rectangular. Then layers feature bumps (eye
+       sockets, brow ridge, nose, mouth, cheeks) as gaussian falloffs in
+       xRel/yRel space (xRel = (u-0.5)*2, yRel = (0.5-v)*2). This shape's
+       z-range (≈0.10..0.30) is what lets depthFade produce a visible
+       gradient instead of pinning the silhouette to black. */
     function warpToFace(u, v) {
-      const xRel = (u - 0.5) * 2;
-      const yRel = (0.5 - v) * 2;
+      const xRel = (u - 0.5) * 2;     // -1..1 left to right
+      const yRel = (0.5 - v) * 2;     //  1..-1 top to bottom
+
+      // strong elliptical taper — boundary of the grid maps to an oval
       const yNorm = yRel * 0.95;
       const ovalT = Math.max(0, 1 - yNorm * yNorm);
-      const x = xRel * Math.sqrt(ovalT) * 0.80;
-      const y = yRel * 0.95;
-      let z = (Math.cos(xRel * Math.PI * 0.5)) * (Math.cos(yRel * Math.PI * 0.5)) * 0.18;
-      // nose ridge
-      const nU = 0.50, nV = 0.50;
-      const dn = Math.hypot((u-nU), (v-nV)) / 0.16;
-      if (dn < 1.6) z += (1 - Math.min(1, dn)) * 0.085;
-      // brow ridge
-      const dbL = Math.hypot((u-0.30), (v-0.27)) / 0.10;
-      const dbR = Math.hypot((u-0.70), (v-0.27)) / 0.10;
-      if (dbL < 1.6) z += (1 - Math.min(1, dbL)) * 0.020;
-      if (dbR < 1.6) z += (1 - Math.min(1, dbR)) * 0.020;
-      // eye sockets recess
-      const deL = Math.hypot((u-0.30)/0.085, (v-0.40)/0.045);
-      const deR = Math.hypot((u-0.70)/0.085, (v-0.40)/0.045);
-      if (deL < 1.5) z -= (1 - Math.min(1, deL)) * 0.030 * config.eyeDepth;
-      if (deR < 1.5) z -= (1 - Math.min(1, deR)) * 0.030 * config.eyeDepth;
-      // chin protrusion
-      if (v > 0.85) z += (v - 0.85) * 0.6 * 0.10 * Math.max(0, 1 - Math.abs(xRel) * 1.2);
-      // cheek bulge
-      const cheekL = Math.hypot((u-0.22)/0.10, (v-0.62)/0.08);
-      const cheekR = Math.hypot((u-0.78)/0.10, (v-0.62)/0.08);
-      if (cheekL < 1.6) z += (1 - Math.min(1, cheekL)) * 0.018;
-      if (cheekR < 1.6) z += (1 - Math.min(1, cheekR)) * 0.018;
+      const widthAtY = Math.sqrt(ovalT) * 0.80;
+      let x = xRel * widthAtY;
+
+      // y stays linear; chin extends + forehead squashes
+      let y = yRel * 1.0;
+      if (yRel < -0.4) y = -0.4 + (yRel + 0.4) * 1.55;
+      if (yRel >  0.7) y =  0.7 + (yRel - 0.7) * 0.45;
+
+      // base z bulge — quadratic falloff from center
+      let z = (1 - xRel*xRel * 0.55 - yRel*yRel * 0.55) * 0.22;
+      if (z < -0.05) z = -0.05;
+
+      // eye sockets recess (gaussian — broad and bowl-shaped)
+      const eyeY = 0.30;
+      const eyeL_d = ((xRel + 0.45) / 0.30) ** 2 + ((yRel - eyeY) / 0.18) ** 2;
+      const eyeR_d = ((xRel - 0.45) / 0.30) ** 2 + ((yRel - eyeY) / 0.18) ** 2;
+      const eyeRecess = 0.045 * config.eyeDepth;
+      z -= eyeRecess * Math.exp(-eyeL_d);
+      z -= eyeRecess * Math.exp(-eyeR_d);
+
+      // brow ridge bumps forward
+      const brow_d = (xRel / 0.7) ** 2 + ((yRel - 0.55) / 0.10) ** 2;
+      z += 0.045 * Math.exp(-brow_d);
+
+      // nose — the dominant z bump
+      const nose_d = (xRel / 0.18) ** 2 + ((yRel - 0.05) / 0.40) ** 2;
+      z += 0.22 * Math.exp(-nose_d);
+
+      // mouth area pushed slightly forward
+      const mouth_d = (xRel / 0.55) ** 2 + ((yRel + 0.45) / 0.20) ** 2;
+      z += 0.06 * Math.exp(-mouth_d);
+
+      // cheekbones
+      const cheekL_d = ((xRel + 0.55) / 0.30) ** 2 + ((yRel - 0.05) / 0.28) ** 2;
+      const cheekR_d = ((xRel - 0.55) / 0.30) ** 2 + ((yRel - 0.05) / 0.28) ** 2;
+      z += 0.04 * Math.exp(-cheekL_d);
+      z += 0.04 * Math.exp(-cheekR_d);
+
       return V(x, y, z);
     }
 
@@ -585,9 +607,9 @@
       const spread = config.spread;
       const p = computeMouthParams();
       // mouth
-      applyShape(disp, SHAPES.mouth_jaw_drop,    p.jaw,    spread);
-      applyShape(disp, SHAPES.mouth_open_lower,  p.open,   spread);
-      applyShape(disp, SHAPES.mouth_open_upper,  p.open,   spread);
+      applyShape(disp, SHAPES.mouth_jaw_drop,    p.jaw,         spread);
+      applyShape(disp, SHAPES.mouth_open_lower,  p.open,        spread);
+      applyShape(disp, SHAPES.mouth_open_upper,  p.open * 0.4,  spread);
       const sm = p.smile;
       if (sm > 0) { applyShape(disp, SHAPES.mouth_smile_L, sm, spread); applyShape(disp, SHAPES.mouth_smile_R, sm, spread); }
       else if (sm < 0) { applyShape(disp, SHAPES.mouth_frown_L, -sm, spread); applyShape(disp, SHAPES.mouth_frown_R, -sm, spread); }
@@ -611,10 +633,16 @@
       // brows
       applyShape(disp, SHAPES.brow_inner_L,  state.browInnerUp,    spread);
       applyShape(disp, SHAPES.brow_inner_R,  state.browInnerUp,    spread);
-      applyShape(disp, SHAPES.brow_outer_L,  Math.max(0, state.browOuterUp), spread);
-      applyShape(disp, SHAPES.brow_outer_R,  Math.max(0, state.browOuterUp), spread);
-      applyShape(disp, SHAPES.brow_down_L,   state.browDown + Math.max(0,-state.browOuterUp), spread);
-      applyShape(disp, SHAPES.brow_down_R,   state.browDown + Math.max(0,-state.browOuterUp), spread);
+      // v011: browOuterUp >= 0 lifts outer brow; < 0 drives brow_down at 0.6x
+      if (state.browOuterUp >= 0) {
+        applyShape(disp, SHAPES.brow_outer_L,  state.browOuterUp,         spread);
+        applyShape(disp, SHAPES.brow_outer_R,  state.browOuterUp,         spread);
+      } else {
+        applyShape(disp, SHAPES.brow_down_L,   -state.browOuterUp * 0.6,  spread);
+        applyShape(disp, SHAPES.brow_down_R,   -state.browOuterUp * 0.6,  spread);
+      }
+      applyShape(disp, SHAPES.brow_down_L,   state.browDown,              spread);
+      applyShape(disp, SHAPES.brow_down_R,   state.browDown,              spread);
       // nose
       applyShape(disp, SHAPES.nose_sneer_L,  state.noseSneer,      spread);
       applyShape(disp, SHAPES.nose_sneer_R,  state.noseSneer,      spread);
