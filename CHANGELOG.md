@@ -6,8 +6,10 @@ Versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
-Experimental work toward 1.1.0 — geometry knobs, fade fix, **per-feature
-minimal-line controls**. Not on npm yet.
+## [1.1.0] — 2026-05-01
+
+Geometry knobs, fade fix, per-feature minimal-line controls, full
+editor UI reorg + a comprehensive grammar spec.
 
 ### Added
 - **Per-feature minimal-line overlay controls** for mouth / eyes / nose /
@@ -183,7 +185,8 @@ Initial release.
 - CDN distribution via jsDelivr + unpkg, both indented (`wireface.js`) and
   minified (`dist/wireface.min.js`) flavors.
 
-[Unreleased]: https://github.com/styk-tv/wireface/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/styk-tv/wireface/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/styk-tv/wireface/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/styk-tv/wireface/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/styk-tv/wireface/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/styk-tv/wireface/releases/tag/v1.0.0
