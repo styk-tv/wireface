@@ -1,10 +1,16 @@
 # wireface
 
+[![npm](https://img.shields.io/npm/v/wireface.svg?logo=npm&color=cb3837&label=npm)](https://www.npmjs.com/package/wireface)
+[![downloads](https://img.shields.io/npm/dm/wireface.svg?color=blue)](https://www.npmjs.com/package/wireface)
+[![bundle](https://img.shields.io/bundlephobia/minzip/wireface?label=min%2Bgzip)](https://bundlephobia.com/package/wireface)
+[![jsDelivr](https://img.shields.io/jsdelivr/npm/hm/wireface.svg?label=jsDelivr)](https://www.jsdelivr.com/package/npm/wireface)
+[![license](https://img.shields.io/npm/l/wireface.svg?color=blue)](LICENSE)
+[![stars](https://img.shields.io/github/stars/styk-tv/wireface?style=flat&logo=github)](https://github.com/styk-tv/wireface)
+[![babylon](https://img.shields.io/badge/babylon.js-v9-bb464b)](https://www.babylonjs.com/)
+
+**A drop-in lipsync renderer for stylized character profiles — no rigged avatar, no ML inference, no server roundtrip.** wireface analyses voice or TTS audio in the browser and drives a wireframe face mesh through 28 expression channels (15 visemes + jaw, lips, blinks, eye gaze, squint, brows, nose, head rotation). Each character is one JSON preset — mesh resolution, colors, depth fade, glow, mood weights, channel gains — saved from the bundled editor and replayed by a single JS file. One canvas, one peer dependency (Babylon.js v9), one `createWireface(canvas)` call. Each instance is fully independent, so a page can host as many talking heads as it has audio sources.
+
 ![wireface](docs/wireface.png)
-
-**Minimal embeddable wireframe lipsync face renderer** — drives expressive character profiles from voice or TTS audio in the browser.
-
-Each call to `createWireface(canvas)` builds a fully independent instance: its own Babylon engine + scene, its own audio context, its own channel state, its own materials and meshes. Multiple instances live on the same page side-by-side without sharing state — drop a different preset and a different voice clip on each one.
 
 - repo: <https://github.com/styk-tv/wireface>
 - npm: <https://www.npmjs.com/package/wireface>
@@ -250,36 +256,27 @@ examples/presets/asset-ydr7de.json   →   right
 
 ---
 
-## Build & publish
+## Contribute
 
-The npm tarball ships both flavors:
+Issues, PRs, and ideas are very welcome. Anything that's fair game:
 
-```
-wireface.js              — original, indented source (also at the package root)
-dist/wireface.js         — copy of the indented source under dist/ for CDN parity
-dist/wireface.min.js     — terser-minified, comments stripped
-```
+- new viseme / expression channels, or better channel mapping for non-English phonetics
+- mood blends, idle micro-motion presets, eye-look behaviors
+- performance / memory tweaks (smaller draws, tighter geometry rebuilds, WebGPU path)
+- alternative renderers (svg, 2d-canvas) sharing the same channel surface
+- new preset packs (drop them in [`examples/presets/`](examples/presets/))
+- editor UX: keyboard shortcuts, undo, multi-channel keyframing
+- docs, typos, clearer onboarding
 
-Local build:
+Open an [issue](https://github.com/styk-tv/wireface/issues) or send a PR — small ones are perfect.
 
-```bash
-npm install
-npm run build
-```
+## Show & tell
 
-CI publishes on tag push — see [`.github/workflows/publish.yml`](.github/workflows/publish.yml).
+Built something with wireface? Please share it. There's a dedicated space:
 
-```bash
-# bump → commit → tag → push tag → CI publishes to npm with provenance
-npm version 1.0.1
-git push --follow-tags
-```
+- 👉 **[GitHub Discussions → Show & Tell](https://github.com/styk-tv/wireface/discussions/categories/show-and-tell)** — drop a screenshot, a video, a CodePen, a deployed URL, or a `.json` preset you're proud of. Other people's presets are the best kind of docs.
 
-The workflow expects an **`NPM_TOKEN`** repo secret (an npm "Automation" token, not "Publish"). Set it once with:
-
-```bash
-gh secret set NPM_TOKEN -R styk-tv/wireface
-```
+If you build a public tool / site / experiment with it, a star on the repo is a small thank-you that makes a real difference.
 
 ---
 
