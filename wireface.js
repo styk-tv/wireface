@@ -161,7 +161,7 @@
     meshVisible: true,
     loopAudio: true,
     mouthHole: true, mouthHoleSize: 1.0,
-    eyeHoles: false, eyeDepth: 1.0,
+    eyeHoles: false, eyeHoleSize: 1.0, eyeDepth: 1.0,
     mouthAnchor: true, eyeAnchor: false,
     lineThickness: 1.0,
     lipVertAmp: 1.6, lipPressForce: 1.0,
@@ -467,10 +467,15 @@
           if (du*du + dv*dv < 1) return false;
         }
         if (config.eyeHoles) {
+          // eye-hole ellipse — sized to roughly match the eye feature radius
+          // so the cut is visibly meaningful at typical mesh densities.
+          // eyeHoleSize is a multiplier (mirrors mouthHoleSize).
+          const eRU = 0.105 * config.eyeHoleSize;
+          const eRV = 0.075 * config.eyeHoleSize;
           const ucen = (baseUVs[a].u + baseUVs[b].u + baseUVs[c].u) / 3;
           const vcen = (baseUVs[a].v + baseUVs[b].v + baseUVs[c].v) / 3;
-          const dl = ((ucen-0.30)/0.085)**2 + ((vcen-0.40)/0.045)**2;
-          const dr = ((ucen-0.70)/0.085)**2 + ((vcen-0.40)/0.045)**2;
+          const dl = ((ucen-0.30)/eRU)**2 + ((vcen-0.40)/eRV)**2;
+          const dr = ((ucen-0.70)/eRU)**2 + ((vcen-0.40)/eRV)**2;
           if (dl < 1 || dr < 1) return false;
         }
         return true;
@@ -1337,6 +1342,7 @@
       if (rc.mouthHole !== undefined && rc.mouthHole !== config.mouthHole) needRebuild = true;
       if (rc.eyeHoles !== undefined && rc.eyeHoles !== config.eyeHoles) needRebuild = true;
       if (rc.mouthHoleSize !== undefined && rc.mouthHoleSize !== config.mouthHoleSize) needRebuild = true;
+      if (rc.eyeHoleSize !== undefined && rc.eyeHoleSize !== config.eyeHoleSize) needRebuild = true;
       if (rc.eyeDepth !== undefined && rc.eyeDepth !== config.eyeDepth) needRebuild = true;
 
       Object.assign(config, rc);
@@ -1360,7 +1366,7 @@
         applyMeshVisibility();
         applyMinimalVisibility();
         if (rc.lineThickness !== undefined) rebuildMinimalLines();
-        if (rc.irisSize !== undefined)      rebuildPupils();
+        if (rc.irisSize !== undefined || rc.pupils !== undefined) rebuildPupils();
         if (rc.lipVertAmp !== undefined || rc.lipPressForce !== undefined) identifyAnchorRings();
       }
       if (rc.glow !== undefined) applyGlow();

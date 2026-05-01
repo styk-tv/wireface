@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <!--
-  wireface-demo.html — two-instance demo for wireface.js
+  wireface — two-instance demo for wireface.js
+  Repository:  https://github.com/styk-tv/wireface
+  npm:         https://www.npmjs.com/package/wireface
   Copyright (c) 2026 Peter Styk
   Released under the MIT License — see LICENSE in the repository root.
 -->
@@ -184,9 +186,10 @@
   </section>
 </main>
 
-<!-- Babylon (peer) + library -->
-<script src="https://cdn.babylonjs.com/babylon.js"></script>
-<script src="wireface.js"></script>
+<!-- Babylon (peer) — pinned to v9 for reproducibility -->
+<script src="https://cdn.jsdelivr.net/npm/babylonjs@9/babylon.js"></script>
+<!-- library — for local file:// runs use ./wireface.js, for CDN use the URL below -->
+<script src="../wireface.js"></script>
 
 <script>
 /* Mount one wireface instance per panel and wire per-instance drag-drop +

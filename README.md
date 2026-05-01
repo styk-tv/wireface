@@ -159,8 +159,9 @@ A preset is one plain object — exactly the shape produced by the editor's **sa
 |  | `lipPressForce` | `0..N` | "press" force for closure visemes (`PP`, `MM`-like) |
 |  | `jawExtend` / `mouthGrow` | offsets | static mouth shape biases |
 | **holes / depth** | `mouthHole` / `eyeHoles` | bool | cut holes in the mesh |
-|  | `mouthHoleSize` | `~1..2` | radius multiplier |
-|  | `eyeDepth` | int | how deep eye sockets push into the mesh |
+|  | `mouthHoleSize` | `~0.4..2` | mouth-hole ellipse radius multiplier |
+|  | `eyeHoleSize` | `~0.4..2` | eye-hole ellipse radius multiplier (per-eye) |
+|  | `eyeDepth` | `0..5+` | how deep eye sockets recess into the parametric warp |
 |  | `mouthAnchor` / `eyeAnchor` | bool | pin anchor rings to track shape changes |
 |  | `overlayTracksMesh` | bool | minimal-line overlays follow mesh deformation |
 | **style** | `lineColor` | hex | wire color |
