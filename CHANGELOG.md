@@ -6,6 +6,40 @@ Versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.1] — 2026-05-01
+
+### Fixed
+- **`scene.useRightHandedSystem = true`** at scene creation in both
+  lib (`wireface.js`) and editor (`examples/editor.html`). Babylon's
+  default left-handed coordinate system put the face's `+Z`
+  nose-forward away from the default `ArcRotateCamera`, so `front`
+  view showed the back of the head and `profile` showed the wrong
+  side of the face. The right-handed system makes `+Z` out-of-screen,
+  so geometry naturally faces the camera and the four view presets
+  (`front`, `three-q`, `profile`, `orbit`) map to conventionally
+  correct sides — no geometry change, no `faceRoot.rotation` flip,
+  no view-alpha rewiring. This is the canonical Babylon answer the
+  user hinted at ("find a way to flip or relax those on init"). See
+  [`SPEC.WIREFACE.BABYLON.9.0` §3](SPEC.WIREFACE.BABYLON.9.0.md#3-coordinate-system--sceneuserighthandedsystem--true).
+
+### Added
+- **`SPEC.WIREFACE.BABYLON.9.0.md`** — how wireface uses Babylon.
+  Covers: minimum API surface (~15 symbols), CDN vs ESM bundling,
+  the right-handed coordinate decision, multi-instance pages,
+  multi-canvas pages, multi-face-in-one-scene status (not yet
+  supported, workarounds documented), the playground.babylonjs.com
+  approach, per-frame cost breakdown, known gotchas, forward grammar.
+- **`examples/playground.html`** — minimal CDN-loaded consumer in
+  ~100 lines. Two baked-in presets (red wire / low-poly blue) +
+  audio drag-drop + play/stop. Designed as the "reference example" a
+  Babylon Playground snippet derives from.
+- **README**: References section explaining the 30-channel grammar's
+  origin — 15 visemes from
+  [Oculus Lipsync](https://developer.oculus.com/documentation/native/audio-ovrlipsync-viseme-reference/)'s
+  phoneme alphabet plus 15 [ARKit-style](https://developer.apple.com/documentation/arkit/arfaceanchor/blendshapelocation)
+  face blendshapes (curated subset of Apple's 52). Fixes the prior
+  "28 channels" claim in the abstract — actual count is 30.
+
 ## [1.1.0] — 2026-05-01
 
 Geometry knobs, fade fix, per-feature minimal-line controls, full
@@ -185,7 +219,8 @@ Initial release.
 - CDN distribution via jsDelivr + unpkg, both indented (`wireface.js`) and
   minified (`dist/wireface.min.js`) flavors.
 
-[Unreleased]: https://github.com/styk-tv/wireface/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/styk-tv/wireface/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/styk-tv/wireface/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/styk-tv/wireface/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/styk-tv/wireface/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/styk-tv/wireface/compare/v1.0.0...v1.0.1

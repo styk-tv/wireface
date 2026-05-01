@@ -8,7 +8,7 @@
 [![stars](https://img.shields.io/github/stars/styk-tv/wireface?style=flat&logo=github)](https://github.com/styk-tv/wireface)
 [![babylon](https://img.shields.io/badge/babylon.js-v9-bb464b)](https://www.babylonjs.com/)
 
-**A drop-in lipsync renderer for stylized character profiles — no rigged avatar, no ML inference, no server roundtrip.** wireface analyses voice or TTS audio in the browser and drives a wireframe face mesh through 28 expression channels (15 visemes + jaw, lips, blinks, eye gaze, squint, brows, nose, head rotation). Each character is one JSON preset — mesh resolution, colors, depth fade, glow, mood weights, channel gains — saved from the bundled editor and replayed by a single JS file. One canvas, one peer dependency (Babylon.js v9), one `createWireface(canvas)` call. Each instance is fully independent, so a page can host as many talking heads as it has audio sources.
+**A drop-in lipsync renderer for stylized character profiles — no rigged avatar, no ML inference, no server roundtrip.** wireface analyses voice or TTS audio in the browser and drives a wireframe face mesh through **30 expression channels** — 15 visemes from the [Oculus Lipsync](https://developer.oculus.com/documentation/native/audio-ovrlipsync-viseme-reference/) phoneme alphabet plus 15 [ARKit-style](https://developer.apple.com/documentation/arkit/arfaceanchor/blendshapelocation) face blendshapes (jaw, lips, blinks, eye gaze, squint, brows, nose, head rotation). Each character is one JSON preset — mesh resolution, colors, depth fade, glow, mood weights, channel gains — saved from the bundled editor and replayed by a single JS file. One canvas, one peer dependency (Babylon.js v9), one `createWireface(canvas)` call. Each instance is fully independent, so a page can host as many talking heads as it has audio sources.
 
 ![wireface](docs/wireface.png)
 
@@ -278,6 +278,61 @@ Built something with wireface? Please share it. There's a dedicated space:
 - 👉 **[GitHub Discussions → Show & Tell](https://github.com/styk-tv/wireface/discussions/categories/show-and-tell)** — drop a screenshot, a video, a CodePen, a deployed URL, or a `.json` preset you're proud of. Other people's presets are the best kind of docs.
 
 If you build a public tool / site / experiment with it, a star on the repo is a small thank-you that makes a real difference.
+
+---
+
+## References
+
+The channel grammar is the union of two well-established blendshape
+inventories. Pick one to read end-to-end and the other will look familiar.
+
+### Oculus Lipsync · 15 visemes (mouth-shape primitives)
+
+The 15 viseme channels (`viseme_sil`, `viseme_PP`, `viseme_FF`, `viseme_TH`,
+`viseme_DD`, `viseme_kk`, `viseme_CH`, `viseme_SS`, `viseme_nn`, `viseme_RR`,
+`viseme_aa`, `viseme_E`, `viseme_I`, `viseme_O`, `viseme_U`) come from the
+Oculus Lipsync SDK's phoneme alphabet. The same set ships with HeadTTS,
+Kokoro, ovrlipsync, and most "phoneme alignment" pipelines. Audio FFT
+estimates the active viseme each frame and the renderer weighted-sums the
+`(open, width, round, smile, lipPress, jaw)` targets.
+
+- [Oculus Audio SDK — Viseme Reference](https://developer.oculus.com/documentation/native/audio-ovrlipsync-viseme-reference/)
+  — the canonical 15-viseme table plus example audio cues per phoneme.
+- [Oculus Lipsync overview](https://developer.oculus.com/documentation/native/audio-ovrlipsync-native/)
+  — what the SDK does and why the 15-viseme split.
+
+### ARKit · 15-of-52 face blendshapes (additive face shape)
+
+The remaining 15 channels (`jawOpen`, `mouthSmile`, `mouthPucker`,
+`eyeBlinkLeft/Right`, `eyeLookH/V`, `eyeSquint`, `browInnerUp/OuterUp/Down`,
+`noseSneer`, `headRotateX/Y/Z`) are a curated subset of Apple ARKit's full
+52-blendshape inventory, named to match. ARKit blendshapes are the
+de-facto industry standard for face animation since iPhone X / TrueDepth;
+glTF face blendshapes, MetaHuman, NVIDIA Audio2Face, and Ready Player Me
+all use compatible naming.
+
+- [ARKit `BlendShapeLocation` reference](https://developer.apple.com/documentation/arkit/arfaceanchor/blendshapelocation)
+  — full 52-blendshape list with semantic names + face-region grouping.
+- [ARKit Face Tracking overview](https://developer.apple.com/documentation/arkit/tracking_and_visualizing_faces)
+  — what ARKit's blendshapes mean and how they're estimated from the
+  TrueDepth depth+IR camera.
+
+### Why this split?
+
+A renderer that only knew Oculus visemes would lipsync audio but couldn't
+emote. A renderer that only knew ARKit blendshapes would emote but
+lipsync poorly (ARKit's mouth blendshapes are continuous 0..1 dilations,
+not phoneme-aligned). Combining both gives **mouth that lipsyncs from
+audio + face that emotes from explicit channels** — they layer additively
+in `computeMouthParams()` so both signals can drive the face simultaneously
+without conflict.
+
+The full grammar (channel names, ranges, smoothing, drive maps, preset
+JSON shape, invariants) is in
+[`SPEC.WIREFACE.GRAMMAR.v1.0.md`](SPEC.WIREFACE.GRAMMAR.v1.0.md).
+Babylon.js setup details (multi-instance scenes, multi-canvas pages,
+playground integration) are in
+[`SPEC.WIREFACE.BABYLON.9.0.md`](SPEC.WIREFACE.BABYLON.9.0.md).
 
 ---
 

@@ -244,6 +244,17 @@
     /* ── Babylon scene ── */
     const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: false, stencil: false, antialias: true });
     const scene  = new BABYLON.Scene(engine);
+    // v1.1.1: right-handed coordinate system. Babylon defaults to LH where +Z
+    // is into the screen, so a face built with +Z=nose-forward by warpToFace
+    // would render facing AWAY from the default ArcRotateCamera at -Z (the
+    // user would see the back of the head). RH flips Z so +Z is out-of-screen,
+    // which means the face naturally faces the camera AND the camera view
+    // alphas (front=-π/2, profile=0, three-q=-π/2-0.6) map to the
+    // conventionally-correct sides of the face — front shows the front,
+    // profile shows the face's right, three-quarter is a proper portrait
+    // angle. Fixes the "everything is flipped so views start incorrectly"
+    // bug without touching warpToFace, faceRoot.rotation, or any view alpha.
+    scene.useRightHandedSystem = true;
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 1);
     // we never pick on pointer-move; saves a per-frame ray test
     scene.skipPointerMovePicking = true;
