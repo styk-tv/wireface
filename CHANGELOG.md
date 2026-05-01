@@ -6,6 +6,29 @@ Versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.2] — 2026-05-01
+
+### Fixed
+- **`useRightHandedSystem` now actually sticks at scene init.** v1.1.1 set
+  `scene.useRightHandedSystem = true` via property assignment AFTER the
+  Scene constructor returned. Empirically, on Babylon 9.5.0 that
+  assignment does not survive the rest of scene initialisation — a
+  runtime probe shortly after createWireface returned read
+  `scene.useRightHandedSystem === false` despite the source assignment.
+  The face still rendered visibly because of the default `flipFace: true`
+  rotation, but profile / three-quarter views were mirrored (camera at
+  `+X` saw the face's left because the geometry was implicitly flipped
+  by the runtime LH→fix-by-rotation path).
+
+  Fix: pass the option to the Scene constructor —
+  `new BABYLON.Scene(engine, { useRightHandedSystem: true })`. Verified
+  with playwright: scene now reports `useRightHandedSystem: true` from
+  the first frame and profile / three-quarter views render the
+  conventionally-correct sides of the face. Both lib and editor get
+  the fix; the editor's view buttons now map naturally without any
+  view-alpha rewiring or geometry flip. The post-construction property
+  assign is also kept (belt-and-braces).
+
 ## [1.1.1] — 2026-05-01
 
 ### Fixed
@@ -219,7 +242,8 @@ Initial release.
 - CDN distribution via jsDelivr + unpkg, both indented (`wireface.js`) and
   minified (`dist/wireface.min.js`) flavors.
 
-[Unreleased]: https://github.com/styk-tv/wireface/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/styk-tv/wireface/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/styk-tv/wireface/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/styk-tv/wireface/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/styk-tv/wireface/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/styk-tv/wireface/compare/v1.0.1...v1.0.2

@@ -572,13 +572,10 @@ function computeMouthParams() {
 
 const canvas = document.getElementById('renderCanvas');
 const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true, antialias: true });
-const scene = new BABYLON.Scene(engine);
-// v1.1.1: use right-handed coordinate system so the face's +Z forward (built
-// by warpToFace) naturally points at the default ArcRotateCamera. Removes
-// the need for a 180° Y-flip at the faceRoot to make front view correct, and
-// fixes the "profile shows back of head" bug — view alphas now map to the
-// natural side of the face, as the user requested ("find a way to ... relax
-// those on init so we can use view as designed").
+// v1.1.2: useRightHandedSystem must be passed via constructor options
+// (post-construction property assign gets silently no-op'd by Babylon 9.5's
+// scene init in some paths). Keeps both forms for resilience.
+const scene = new BABYLON.Scene(engine, { useRightHandedSystem: true });
 scene.useRightHandedSystem = true;
 scene.clearColor = new BABYLON.Color4(0, 0, 0, 1);
 

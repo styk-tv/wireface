@@ -1,6 +1,6 @@
 {
   "name": "wireface",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Minimal embeddable wireframe lipsync face renderer — drives expressive character profiles from voice or TTS audio in the browser.",
   "main": "wireface.js",
   "browser": "wireface.js",
