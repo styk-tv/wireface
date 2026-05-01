@@ -6,9 +6,26 @@ Versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
-Experimental work toward 1.1.0 — geometry knobs and a fade fix. Not on npm yet.
+Experimental work toward 1.1.0 — geometry knobs, fade fix, **per-feature
+minimal-line controls**. Not on npm yet.
 
 ### Added
+- **Per-feature minimal-line overlay controls** for mouth / eyes / nose /
+  brows. Each feature now has its own:
+  - **color** (`mouthColor`, `eyeColor`, `noseColor` — `browColor` was
+    already separate). All default `null` = inherit `lineColor`, so v1.0
+    presets render identically. Setting any to a hex overrides the
+    inherited color for that feature only.
+  - **line thickness multiplier** (`mouthLineThickness`,
+    `eyeLineThickness`, `noseLineThickness`, `browLineThickness`) —
+    multiplies on top of the global `lineThickness`. Lets you make the
+    mouth thick + nose thin without changing the others. Range `0.2..4`,
+    default `1.0`.
+  - **visibility toggle** (`minimalMouth`, `minimalEyes`, `minimalNose`,
+    `minimalBrows`) — independent of the master `minimal` toggle (which
+    still hides the whole overlay). Default `true`.
+  - Internally backed by separate Babylon materials (`mouthMat`, `eyeMat`,
+    `noseMat`, `browMat`) so colors don't bleed between features.
 - `depthFadeCurve` config (`0.3..3`, default `1.0`) — exponent applied to the
   per-vertex fade weight so edges can reach **true black** even when the wire
   segments interpolate from inner-bright vertices. `>1` darkens the back
@@ -19,13 +36,25 @@ Experimental work toward 1.1.0 — geometry knobs and a fade fix. Not on npm yet
   forward snout / animal / crocodile-mouth distortion the editor couldn't
   previously achieve. Independent so you can dial only the chin or only the
   upper lip out.
+- **Editor UI** for all of the above:
+  - new **OVERLAY FEATURES** panel section (4 visibility toggles + 4
+    thickness sliders).
+  - new **upper jaw fwd** and **lower jaw fwd** sliders in the JAW + GROWTH
+    section.
+  - new **fade curve** slider in the COLORS section.
+  - new **mouth / eyes / nose** colour pickers in the COLORS section
+    (next to the existing line / brow / pupil / iris pickers).
 
 ### Changed
 - Eye-socket warp recess moved from `yRel = 0.30` (UV `v ≈ 0.35`) down to
   `yRel = 0.20` (UV `v = 0.40`), aligning the parametric recess centre with
   the eye opening / minimal-line eyelid overlay / eye-hole puncture
   (all at `v = 0.40`). Fixes the visual mismatch where the bowl sat above
-  where the eyes actually were.
+  where the eyes actually were. Editor's `warpToFace` updated to match.
+- `makeTube(name, points, radius, mat, featureMul, instance)` — signature
+  changed to accept a per-feature material and per-feature thickness
+  multiplier. Backward compat: passing `null` for either uses the
+  `mouthMat` and `featureMul = 1` defaults respectively.
 
 ### Fixed
 - `loadPreset` now correctly re-applies `glow` (and re-registers the
@@ -33,6 +62,9 @@ Experimental work toward 1.1.0 — geometry knobs and a fade fix. Not on npm yet
   glow flag was stored but the GlowLayer's intensity wasn't always updated
   after a `rebuildMesh()`, so toggling glow on, saving, and loading another
   preset left the user's last glow state stuck on screen.
+- Editor `applyPreset` previously updated `renderConfig.glow` and the
+  toggle UI class but never re-applied `glow.intensity`. Now syncs glow +
+  rebuilds pupils on preset load.
 
 ---
 

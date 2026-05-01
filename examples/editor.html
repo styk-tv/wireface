@@ -344,13 +344,29 @@
       <div class="label" style="font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:var(--dim);margin-top:14px;margin-bottom:6px;">jaw + growth</div>
       <div class="ctl"><div class="ctl-name">jaw extend</div><div class="ctl-bar" data-rcfg="jawExtend" data-min="0" data-max="3" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="jawExtend">0.00</div></div>
       <div class="ctl"><div class="ctl-name">mouth grow</div><div class="ctl-bar" data-rcfg="mouthGrow" data-min="0" data-max="1.5" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="mouthGrow">0.00</div></div>
+      <div class="ctl"><div class="ctl-name">upper jaw fwd</div><div class="ctl-bar" data-rcfg="upperJawProtrude" data-min="0" data-max="3" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="upperJawProtrude">0.00</div></div>
+      <div class="ctl"><div class="ctl-name">lower jaw fwd</div><div class="ctl-bar" data-rcfg="lowerJawProtrude" data-min="0" data-max="3" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="lowerJawProtrude">0.00</div></div>
+
+      <div class="label" style="font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:var(--dim);margin-top:14px;margin-bottom:6px;">overlay features</div>
+      <div class="toggle-row"><span>show mouth</span><div class="toggle on" data-toggle="minimalMouth"></div></div>
+      <div class="toggle-row"><span>show eyes</span><div class="toggle on" data-toggle="minimalEyes"></div></div>
+      <div class="toggle-row"><span>show nose</span><div class="toggle on" data-toggle="minimalNose"></div></div>
+      <div class="toggle-row"><span>show brows</span><div class="toggle on" data-toggle="minimalBrows"></div></div>
+      <div class="ctl"><div class="ctl-name">mouth ━</div><div class="ctl-bar" data-rcfg="mouthLineThickness" data-min="0.2" data-max="4" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="mouthLineThickness">1.00</div></div>
+      <div class="ctl"><div class="ctl-name">eyes ━</div><div class="ctl-bar" data-rcfg="eyeLineThickness"   data-min="0.2" data-max="4" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="eyeLineThickness">1.00</div></div>
+      <div class="ctl"><div class="ctl-name">nose ━</div><div class="ctl-bar" data-rcfg="noseLineThickness"  data-min="0.2" data-max="4" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="noseLineThickness">1.00</div></div>
+      <div class="ctl"><div class="ctl-name">brows ━</div><div class="ctl-bar" data-rcfg="browLineThickness" data-min="0.2" data-max="4" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="browLineThickness">1.00</div></div>
 
       <div class="label" style="font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:var(--dim);margin-top:14px;margin-bottom:6px;">colors</div>
       <div class="color-row"><div class="ctl-name">base</div><input type="color" id="color-base" value="#ffffff"><div class="ctl-val" id="color-base-val">FFF</div></div>
       <div class="color-row"><div class="ctl-name">depth fade</div><input type="color" id="color-fade" value="#000000"><div class="ctl-val" id="color-fade-val">000</div></div>
       <div class="ctl"><div class="ctl-name">fade ░░</div><div class="ctl-bar" data-rcfg="depthFade" data-min="0" data-max="1" data-step="0.02"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="depthFade">0.00</div></div>
-      <div class="color-row"><div class="ctl-name">line</div><input type="color" id="color-line" value="#ffffff"><div class="ctl-val" id="color-line-val">FFF</div></div>
-      <div class="color-row"><div class="ctl-name">brow</div><input type="color" id="color-brow" value="#ffffff"><div class="ctl-val" id="color-brow-val">FFF</div></div>
+      <div class="ctl"><div class="ctl-name">fade curve</div><div class="ctl-bar" data-rcfg="depthFadeCurve" data-min="0.3" data-max="3" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="depthFadeCurve">1.00</div></div>
+      <div class="color-row"><div class="ctl-name">line (default)</div><input type="color" id="color-line" value="#ffffff"><div class="ctl-val" id="color-line-val">FFF</div></div>
+      <div class="color-row"><div class="ctl-name">mouth</div><input type="color" id="color-mouth" value="#ffffff"><div class="ctl-val" id="color-mouth-val">FFF</div></div>
+      <div class="color-row"><div class="ctl-name">eyes</div><input type="color" id="color-eye"   value="#ffffff"><div class="ctl-val" id="color-eye-val">FFF</div></div>
+      <div class="color-row"><div class="ctl-name">nose</div><input type="color" id="color-nose"  value="#ffffff"><div class="ctl-val" id="color-nose-val">FFF</div></div>
+      <div class="color-row"><div class="ctl-name">brow</div><input type="color" id="color-brow"  value="#ffffff"><div class="ctl-val" id="color-brow-val">FFF</div></div>
       <div class="color-row"><div class="ctl-name">pupil</div><input type="color" id="color-pupil" value="#ffffff"><div class="ctl-val" id="color-pupil-val">FFF</div></div>
       <div class="color-row"><div class="ctl-name">iris</div><input type="color" id="color-iris" value="#000000"><div class="ctl-val" id="color-iris-val">000</div></div>
       <div class="ctl"><div class="ctl-name">iris ⊙</div><div class="ctl-bar" data-rcfg="irisSize" data-min="1" data-max="4" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="irisSize">1.60</div></div>
@@ -650,6 +666,14 @@ const renderConfig = {
   browColor: '#ffffff',     // brow tube color separate from lineColor
   jawExtend: 0.0,           // z-forward push of lower face when jaw opens [0, 3]
   mouthGrow: 0.0,           // extra scaling of mouth region as it opens [0, 1.5]
+  // v1.1 — experimental
+  depthFadeCurve: 1.0,      // exponent on depth-fade weight [0.3, 3]
+  upperJawProtrude: 0.0,    // static z push of upper-mouth region [0, 3]
+  lowerJawProtrude: 0.0,    // static z push of lower jaw / chin [0, 3]
+  // per-feature minimal-line overrides (null = inherit lineColor)
+  mouthColor: null, eyeColor: null, noseColor: null,
+  minimalMouth: true, minimalEyes: true, minimalNose: true, minimalBrows: true,
+  mouthLineThickness: 1.0, eyeLineThickness: 1.0, noseLineThickness: 1.0, browLineThickness: 1.0,
 };
 
 /* per-channel gain knobs — multiplier applied to each channel value when
@@ -726,7 +750,8 @@ function warpToFace(u, v) {
   if (z < -0.05) z = -0.05;
 
   // eye sockets recess (small but visible)
-  const eyeY = 0.30;
+  // v1.1: align eye-recess centre with eye-opening / eyelid overlay (v=0.40)
+  const eyeY = 0.20;
   const eyeL_d = ((xRel + 0.45) / 0.30) ** 2 + ((yRel - eyeY) / 0.18) ** 2;
   const eyeR_d = ((xRel - 0.45) / 0.30) ** 2 + ((yRel - eyeY) / 0.18) ** 2;
   const eyeRecess = 0.045 * renderConfig.eyeDepth;
@@ -1121,6 +1146,36 @@ function applyMouthGrow(disp) {
   }
 }
 
+/* v1.1: static jaw-protrude passes — push upper-mouth and lower-jaw regions
+   forward independent of jawOpen. Used together they form the snout / animal
+   / crocodile-mouth distortion. Both default 0 so existing behavior is
+   unchanged. */
+function applyUpperJawProtrude(disp) {
+  const amt = renderConfig.upperJawProtrude;
+  if (amt < 0.001) return;
+  const push = amt * 0.18;
+  for (let i = 0; i < baseUVs.length; i++) {
+    const v = baseUVs[i].v;
+    if (v < 0.45 || v > 0.72) continue;
+    const w = v < 0.62 ? (v - 0.45) / 0.17 : (0.72 - v) / 0.10;
+    disp[i].z += push * w;
+  }
+}
+function applyLowerJawProtrude(disp) {
+  const amt = renderConfig.lowerJawProtrude;
+  if (amt < 0.001) return;
+  const push = amt * 0.18;
+  for (let i = 0; i < baseUVs.length; i++) {
+    const v = baseUVs[i].v;
+    if (v < 0.70) continue;
+    let w;
+    if (v < 0.85) w = (v - 0.70) / 0.15;
+    else          w = 1 - (v - 0.85) / 0.30;
+    if (w < 0) w = 0;
+    disp[i].z += push * w;
+  }
+}
+
 /* apply mouth anchor — drives ring vertices to match the lip-curve formula */
 function applyMouthAnchors(disp) {
   if (!renderConfig.mouthAnchor) return;
@@ -1426,8 +1481,10 @@ function updateFace() {
   computeMorphs(_dispBuf);
   if (renderConfig.reactivity > 0) couple(_dispBuf, renderConfig.reactivity);
   applyFeatureScales(_dispBuf);
-  applyJawExtension(_dispBuf);   // v011: z-forward push of lower face on jaw open
-  applyMouthGrow(_dispBuf);      // v011: scale mouth region outward proportional to openness
+  applyJawExtension(_dispBuf);    // v011: z-forward push of lower face on jaw open
+  applyMouthGrow(_dispBuf);       // v011: scale mouth region outward proportional to openness
+  applyUpperJawProtrude(_dispBuf); // v1.1: static upper-jaw push
+  applyLowerJawProtrude(_dispBuf); // v1.1: static lower-jaw push (crocodile-mouth)
   applyMouthAnchors(_dispBuf);
   applyEyeAnchors(_dispBuf);
 
@@ -1446,11 +1503,13 @@ function updateFace() {
   if (renderConfig.depthFade > 0.001 && _baseRGB && _fadeRGB) {
     const zRange = (_zMax - _zMin) || 1;
     const f = renderConfig.depthFade;
+    const curve = renderConfig.depthFadeCurve > 0 ? renderConfig.depthFadeCurve : 1;
     for (let i = 0; i < baseVertices.length; i++) {
-      // currentZ from already-updated _posBuf
       const z = _posBuf[3*i + 2];
-      // t: 0 at front (max z), 1 at back (min z)
-      const t = Math.max(0, Math.min(1, (_zMax - z) / zRange)) * f;
+      let t = (_zMax - z) / zRange;
+      if (t < 0) t = 0; else if (t > 1) t = 1;
+      if (curve !== 1) t = Math.pow(t, curve);
+      t *= f;
       _colBuf[4*i  ] = _baseRGB[0] * (1 - t) + _fadeRGB[0] * t;
       _colBuf[4*i+1] = _baseRGB[1] * (1 - t) + _fadeRGB[1] * t;
       _colBuf[4*i+2] = _baseRGB[2] * (1 - t) + _fadeRGB[2] * t;
@@ -1502,17 +1561,21 @@ rebuildPupils();
    the same channel state as the mesh so deformations stay synchronized.
    Toggleable via renderConfig.minimal. */
 
-const minimalMat = new BABYLON.StandardMaterial('minimalMat', scene);
-minimalMat.emissiveColor = new BABYLON.Color3(1, 1, 1);
-minimalMat.disableLighting = true;
-minimalMat.specularColor = new BABYLON.Color3(0, 0, 0);
-
-/* v011: separate material for brow tubes so they can have a distinct color
-   from the rest of the minimal-line overlay. Same render properties otherwise. */
-const browMat = new BABYLON.StandardMaterial('browMat', scene);
-browMat.emissiveColor = new BABYLON.Color3(1, 1, 1);
-browMat.disableLighting = true;
-browMat.specularColor = new BABYLON.Color3(0, 0, 0);
+/* v1.1: one material per minimal-line feature so each can have its own color.
+   lineColor is the shared fallback; per-feature overrides (mouthColor /
+   eyeColor / noseColor) are null by default = inherit lineColor. */
+function makeMinimalMat(name) {
+  const m = new BABYLON.StandardMaterial(name, scene);
+  m.emissiveColor = new BABYLON.Color3(1, 1, 1);
+  m.disableLighting = true;
+  m.specularColor = new BABYLON.Color3(0, 0, 0);
+  return m;
+}
+const mouthMat = makeMinimalMat('mouthMat');
+const eyeMat   = makeMinimalMat('eyeMat');
+const noseMat  = makeMinimalMat('noseMat');
+const browMat  = makeMinimalMat('browMat');
+const minimalMat = mouthMat;  // legacy alias
 
 const minimalGroup = new BABYLON.TransformNode('minimal', scene);
 minimalGroup.parent = faceRoot;
@@ -1578,13 +1641,13 @@ function smoothPath(controls, samples = 18) {
   return out;
 }
 
-function makeTube(name, points, radius, instance) {
-  const r = instance ? radius : radius * renderConfig.lineThickness;
+function makeTube(name, points, radius, mat, featureMul, instance) {
+  const r = instance ? radius : radius * (featureMul || 1) * renderConfig.lineThickness;
   const opts = { path: points, radius: r, tessellation: 6, updatable: true };
   if (instance) opts.instance = instance;
   const tube = BABYLON.MeshBuilder.CreateTube(name, opts, scene);
   if (!instance) {
-    tube.material = minimalMat;
+    tube.material = mat || mouthMat;
     tube.parent = minimalGroup;
   }
   return tube;
@@ -1695,25 +1758,25 @@ function rebuildMinimalLines() {
   if (noseRightMesh)  { noseRightMesh.dispose();  noseRightMesh  = null; }
 
   const { upper, lower } = mouthLipPaths();
-  mouthUpperMesh = makeTube('mouth_u', upper, 0.010);
-  mouthLowerMesh = makeTube('mouth_l', lower, 0.010);
+  mouthUpperMesh = makeTube('mouth_u', upper, 0.010, mouthMat, renderConfig.mouthLineThickness);
+  mouthLowerMesh = makeTube('mouth_l', lower, 0.010, mouthMat, renderConfig.mouthLineThickness);
 
   for (const eye of eyeData) {
-    const u = makeTube('eye_' + eye.side + '_u', eyePath(eye, true),  0.0085);
-    const l = makeTube('eye_' + eye.side + '_l', eyePath(eye, false), 0.0085);
+    const u = makeTube('eye_' + eye.side + '_u', eyePath(eye, true),  0.0085, eyeMat, renderConfig.eyeLineThickness);
+    const l = makeTube('eye_' + eye.side + '_l', eyePath(eye, false), 0.0085, eyeMat, renderConfig.eyeLineThickness);
     eyeMeshes.push({ eye, upper: u, lower: l });
   }
 
   for (const brow of browData) {
-    const m = makeTube('brow_' + brow.side, browPath(brow), 0.011);
-    m.material = browMat;  // v011: brow color is separate from line color
+    const m = makeTube('brow_' + brow.side, browPath(brow), 0.011, browMat, renderConfig.browLineThickness);
     browMeshes.push({ brow, mesh: m });
   }
 
   const np = nosePaths();
-  noseBridgeMesh = makeTube('nose_b', np.bridge, 0.009);
-  noseLeftMesh   = makeTube('nose_l', np.leftN,  0.0085);
-  noseRightMesh  = makeTube('nose_r', np.rightN, 0.0085);
+  noseBridgeMesh = makeTube('nose_b', np.bridge, 0.009,  noseMat, renderConfig.noseLineThickness);
+  noseLeftMesh   = makeTube('nose_l', np.leftN,  0.0085, noseMat, renderConfig.noseLineThickness);
+  noseRightMesh  = makeTube('nose_r', np.rightN, 0.0085, noseMat, renderConfig.noseLineThickness);
+  applyMinimalSubVisibility();
 }
 
 rebuildMinimalLines();
@@ -1721,22 +1784,33 @@ rebuildMinimalLines();
 function updateMinimal() {
   // mouth
   const mp = mouthLipPaths();
-  makeTube('', mp.upper, 0.010, mouthUpperMesh);
-  makeTube('', mp.lower, 0.010, mouthLowerMesh);
+  makeTube('', mp.upper, 0.010, null, null, mouthUpperMesh);
+  makeTube('', mp.lower, 0.010, null, null, mouthLowerMesh);
   // eyes
   for (const em of eyeMeshes) {
-    makeTube('', eyePath(em.eye, true),  0.0085, em.upper);
-    makeTube('', eyePath(em.eye, false), 0.0085, em.lower);
+    makeTube('', eyePath(em.eye, true),  0.0085, null, null, em.upper);
+    makeTube('', eyePath(em.eye, false), 0.0085, null, null, em.lower);
   }
   // brows
   for (const bm of browMeshes) {
-    makeTube('', browPath(bm.brow), 0.011, bm.mesh);
+    makeTube('', browPath(bm.brow), 0.011, null, null, bm.mesh);
   }
   // nose
   const np = nosePaths();
-  makeTube('', np.bridge, 0.009,  noseBridgeMesh);
-  makeTube('', np.leftN,  0.0085, noseLeftMesh);
-  makeTube('', np.rightN, 0.0085, noseRightMesh);
+  makeTube('', np.bridge, 0.009,  null, null, noseBridgeMesh);
+  makeTube('', np.leftN,  0.0085, null, null, noseLeftMesh);
+  makeTube('', np.rightN, 0.0085, null, null, noseRightMesh);
+}
+
+function applyMinimalSubVisibility() {
+  const setVis = (m, v) => { if (m) m.isVisible = v; };
+  setVis(mouthUpperMesh, !!renderConfig.minimalMouth);
+  setVis(mouthLowerMesh, !!renderConfig.minimalMouth);
+  for (const em of eyeMeshes) { setVis(em.upper, !!renderConfig.minimalEyes); setVis(em.lower, !!renderConfig.minimalEyes); }
+  for (const bm of browMeshes) setVis(bm.mesh, !!renderConfig.minimalBrows);
+  setVis(noseBridgeMesh, !!renderConfig.minimalNose);
+  setVis(noseLeftMesh,   !!renderConfig.minimalNose);
+  setVis(noseRightMesh,  !!renderConfig.minimalNose);
 }
 
 function applyMinimalVisibility() {
@@ -2471,7 +2545,8 @@ function setRcfgVal(key, val) {
   if (lbl) lbl.textContent = (step >= 1) ? String(Math.round(v)) : v.toFixed(2);
   // side-effects
   if (key === 'meshCols' || key === 'meshRows' || key === 'eyeDepth' || key === 'mouthHoleSize') rebuildMesh();
-  if (key === 'lineThickness') {
+  if (key === 'lineThickness' || key === 'mouthLineThickness' || key === 'eyeLineThickness' ||
+      key === 'noseLineThickness' || key === 'browLineThickness') {
     rebuildMinimalLines();
     // edges renderer width is mutable; just nudge it without dispose/recreate
     if (mesh && mesh._edgesRenderer) mesh.edgesWidth = 4 * renderConfig.lineThickness;
@@ -2492,14 +2567,34 @@ function setRcfgVal(key, val) {
   }
 }
 
-/* color pickers — line + pupil + v011: base / fade / iris / brow */
+/* color pickers — line + pupil + v011: base / fade / iris / brow + v1.1: per-feature */
 function applyLineColor(hex) {
   renderConfig.lineColor = hex;
-  if (typeof minimalMat !== 'undefined' && minimalMat) {
-    minimalMat.emissiveColor = BABYLON.Color3.FromHexString(hex);
-  }
+  const c = BABYLON.Color3.FromHexString(hex);
+  // mouth/eye/nose mats inherit lineColor unless their per-feature override is non-null
+  if (!renderConfig.mouthColor && mouthMat) mouthMat.emissiveColor = c;
+  if (!renderConfig.eyeColor   && eyeMat)   eyeMat.emissiveColor   = c;
+  if (!renderConfig.noseColor  && noseMat)  noseMat.emissiveColor  = c;
   const lbl = document.getElementById('color-line-val');
   if (lbl) lbl.textContent = hex.replace('#', '').toUpperCase().slice(0, 3);
+}
+function applyMouthColor(hex) {
+  renderConfig.mouthColor = hex || null;
+  if (mouthMat) mouthMat.emissiveColor = BABYLON.Color3.FromHexString(hex || renderConfig.lineColor);
+  const lbl = document.getElementById('color-mouth-val');
+  if (lbl) lbl.textContent = (hex || renderConfig.lineColor).replace('#', '').toUpperCase().slice(0, 3);
+}
+function applyEyeColor(hex) {
+  renderConfig.eyeColor = hex || null;
+  if (eyeMat) eyeMat.emissiveColor = BABYLON.Color3.FromHexString(hex || renderConfig.lineColor);
+  const lbl = document.getElementById('color-eye-val');
+  if (lbl) lbl.textContent = (hex || renderConfig.lineColor).replace('#', '').toUpperCase().slice(0, 3);
+}
+function applyNoseColor(hex) {
+  renderConfig.noseColor = hex || null;
+  if (noseMat) noseMat.emissiveColor = BABYLON.Color3.FromHexString(hex || renderConfig.lineColor);
+  const lbl = document.getElementById('color-nose-val');
+  if (lbl) lbl.textContent = (hex || renderConfig.lineColor).replace('#', '').toUpperCase().slice(0, 3);
 }
 function applyPupilColor(hex) {
   renderConfig.pupilColor = hex;
@@ -2552,11 +2647,19 @@ function applyBrowColor(hex) {
     ['color-fade',  'fadeColor',  applyFadeColor],
     ['color-iris',  'irisColor',  applyIrisColor],
     ['color-brow',  'browColor',  applyBrowColor],
+    // v1.1: per-feature minimal-line colors. Default value seeded from
+    // lineColor so the picker shows the inherited color, but user clicking
+    // the picker sets the per-feature override.
+    ['color-mouth', 'mouthColor', applyMouthColor],
+    ['color-eye',   'eyeColor',   applyEyeColor],
+    ['color-nose',  'noseColor',  applyNoseColor],
   ];
   for (const [id, key, fn] of wires) {
     const el = document.getElementById(id);
     if (!el) continue;
-    el.value = renderConfig[key];
+    // for null per-feature colors, seed picker from lineColor so the swatch
+    // reflects the inherited render color
+    el.value = renderConfig[key] || renderConfig.lineColor || '#ffffff';
     el.addEventListener('input', () => fn(el.value));
     fn(el.value);
   }
@@ -2606,6 +2709,10 @@ document.querySelectorAll('[data-toggle]').forEach(t => {
       case 'flipFace':    applyFaceFlip(); break;
       case 'meshVisible': applyMeshVisibility(); break;
       case 'minimal':     applyMinimalVisibility(); break;
+      case 'minimalMouth':
+      case 'minimalEyes':
+      case 'minimalNose':
+      case 'minimalBrows': applyMinimalSubVisibility(); break;
       case 'mouthAnchor': /* takes effect next frame */ break;
       case 'eyeAnchor':   /* takes effect next frame */ break;
       case 'overlayTracksMesh': /* takes effect next frame */ break;
@@ -2720,6 +2827,32 @@ function applyPreset(p) {
   if (p.renderConfig && p.renderConfig.browColor) {
     const el = document.getElementById('color-brow'); if (el) el.value = p.renderConfig.browColor;
     applyBrowColor(p.renderConfig.browColor);
+  }
+  // v1.1: per-feature minimal-line colors (null = inherit lineColor; non-null overrides)
+  if (p.renderConfig) {
+    const perFeat = [
+      ['mouthColor', 'color-mouth', applyMouthColor],
+      ['eyeColor',   'color-eye',   applyEyeColor],
+      ['noseColor',  'color-nose',  applyNoseColor],
+    ];
+    for (const [k, id, fn] of perFeat) {
+      if (k in p.renderConfig) {
+        const el = document.getElementById(id);
+        const swatch = p.renderConfig[k] || p.renderConfig.lineColor || '#ffffff';
+        if (el) el.value = swatch;
+        fn(p.renderConfig[k]);  // null falls back to lineColor inside the setter
+      }
+    }
+  }
+  // v1.1: per-feature visibility + thickness — sliders pick up via setRcfgVal
+  // when iterating renderConfig keys above (numeric path). Toggles update via
+  // the data-toggle initialization. Now refresh visibility + rebuild tubes
+  // so the new state actually takes effect.
+  applyMinimalSubVisibility();
+  if (p.renderConfig && (
+       'mouthLineThickness' in p.renderConfig || 'eyeLineThickness' in p.renderConfig ||
+       'noseLineThickness'  in p.renderConfig || 'browLineThickness' in p.renderConfig)) {
+    rebuildMinimalLines();
   }
   // channel gains (knobs)
   if (p.channelGainSliders) {

@@ -168,6 +168,13 @@
     overlayTracksMesh: true,
     moodTransitionTime: 0.6,
     lineColor: '#ffffff', pupilColor: '#ffffff',
+    // Per-feature minimal-line overrides. null = inherit lineColor (backward
+    // compat with v1.0.x presets). Each feature can be hidden individually
+    // even when the master `minimal` is on. Each has its own thickness
+    // multiplier on top of the global `lineThickness`.
+    mouthColor: null, eyeColor: null, noseColor: null,
+    minimalMouth: true, minimalEyes: true, minimalNose: true, minimalBrows: true,
+    mouthLineThickness: 1.0, eyeLineThickness: 1.0, noseLineThickness: 1.0, browLineThickness: 1.0,
     baseColor: '#ffffff', fadeColor: '#000000', depthFade: 0.0,
     // exponent applied to the per-vertex fade weight. >1 darkens the back
     // faster (so silhouette edges actually reach fadeColor in wire mode);
@@ -280,15 +287,23 @@
     wireMat.alpha = 1;
     wireMat.useVertexColor = true;
 
-    const minimalMat = new BABYLON.StandardMaterial('minimalMat', scene);
-    minimalMat.emissiveColor = new BABYLON.Color3(1, 1, 1);
-    minimalMat.disableLighting = true;
-    minimalMat.specularColor = new BABYLON.Color3(0, 0, 0);
-
-    const browMat = new BABYLON.StandardMaterial('browMat', scene);
-    browMat.emissiveColor = new BABYLON.Color3(1, 1, 1);
-    browMat.disableLighting = true;
-    browMat.specularColor = new BABYLON.Color3(0, 0, 0);
+    /* one material per minimal-line feature so each can have its own color
+       independent of the others. lineColor is the shared fallback; if a
+       per-feature color (mouthColor/eyeColor/noseColor) is null the feature
+       inherits lineColor at apply time. */
+    function makeMinimalMat(name) {
+      const m = new BABYLON.StandardMaterial(name, scene);
+      m.emissiveColor = new BABYLON.Color3(1, 1, 1);
+      m.disableLighting = true;
+      m.specularColor = new BABYLON.Color3(0, 0, 0);
+      return m;
+    }
+    const mouthMat = makeMinimalMat('mouthMat');
+    const eyeMat   = makeMinimalMat('eyeMat');
+    const noseMat  = makeMinimalMat('noseMat');
+    const browMat  = makeMinimalMat('browMat');
+    // legacy alias — some downstream code still references minimalMat
+    const minimalMat = mouthMat;
 
     const minimalGroup = new BABYLON.TransformNode('minimal', scene);
     minimalGroup.parent = faceRoot;
@@ -945,12 +960,16 @@
       return out;
     }
 
-    function makeTube(name, points, radius, instance) {
-      const r = instance ? radius : radius * config.lineThickness;
+    /* makeTube creates a new tube OR updates an existing one in-place.
+       For new tubes (instance=null) caller passes the per-feature material
+       and per-feature thickness multiplier; final radius =
+       baseRadius * featureMul * config.lineThickness (global). */
+    function makeTube(name, points, radius, mat, featureMul, instance) {
+      const r = instance ? radius : radius * (featureMul || 1) * config.lineThickness;
       const opts = { path: points, radius: r, tessellation: 6, updatable: true };
       if (instance) opts.instance = instance;
       const tube = BABYLON.MeshBuilder.CreateTube(name, opts, scene);
-      if (!instance) { tube.material = minimalMat; tube.parent = minimalGroup; }
+      if (!instance) { tube.material = mat || mouthMat; tube.parent = minimalGroup; }
       return tube;
     }
 
@@ -1043,39 +1062,39 @@
       if (noseLeftMesh)   { noseLeftMesh.dispose();   noseLeftMesh   = null; }
       if (noseRightMesh)  { noseRightMesh.dispose();  noseRightMesh  = null; }
       const { upper, lower } = mouthLipPaths();
-      mouthUpperMesh = makeTube('mouth_u', upper, 0.010);
-      mouthLowerMesh = makeTube('mouth_l', lower, 0.010);
+      mouthUpperMesh = makeTube('mouth_u', upper, 0.010, mouthMat, config.mouthLineThickness);
+      mouthLowerMesh = makeTube('mouth_l', lower, 0.010, mouthMat, config.mouthLineThickness);
       for (const eye of eyeData) {
-        const u = makeTube('eye_' + eye.side + '_u', eyePath(eye, true),  0.0085);
-        const l = makeTube('eye_' + eye.side + '_l', eyePath(eye, false), 0.0085);
+        const u = makeTube('eye_' + eye.side + '_u', eyePath(eye, true),  0.0085, eyeMat, config.eyeLineThickness);
+        const l = makeTube('eye_' + eye.side + '_l', eyePath(eye, false), 0.0085, eyeMat, config.eyeLineThickness);
         eyeMeshes.push({ eye, upper: u, lower: l });
       }
       for (const brow of browData) {
-        const m = makeTube('brow_' + brow.side, browPath(brow), 0.011);
-        m.material = browMat;
+        const m = makeTube('brow_' + brow.side, browPath(brow), 0.011, browMat, config.browLineThickness);
         browMeshes.push({ brow, mesh: m });
       }
       const np = nosePaths();
-      noseBridgeMesh = makeTube('nose_b', np.bridge, 0.009);
-      noseLeftMesh   = makeTube('nose_l', np.leftN,  0.0085);
-      noseRightMesh  = makeTube('nose_r', np.rightN, 0.0085);
+      noseBridgeMesh = makeTube('nose_b', np.bridge, 0.009,  noseMat, config.noseLineThickness);
+      noseLeftMesh   = makeTube('nose_l', np.leftN,  0.0085, noseMat, config.noseLineThickness);
+      noseRightMesh  = makeTube('nose_r', np.rightN, 0.0085, noseMat, config.noseLineThickness);
       applyMinimalVisibility();
+      applyMinimalSubVisibility();
     }
 
     function updateMinimal() {
       if (!mouthUpperMesh) return;
       const mp = mouthLipPaths();
-      makeTube('', mp.upper, 0.010, mouthUpperMesh);
-      makeTube('', mp.lower, 0.010, mouthLowerMesh);
+      makeTube('', mp.upper, 0.010, null, null, mouthUpperMesh);
+      makeTube('', mp.lower, 0.010, null, null, mouthLowerMesh);
       for (const em of eyeMeshes) {
-        makeTube('', eyePath(em.eye, true),  0.0085, em.upper);
-        makeTube('', eyePath(em.eye, false), 0.0085, em.lower);
+        makeTube('', eyePath(em.eye, true),  0.0085, null, null, em.upper);
+        makeTube('', eyePath(em.eye, false), 0.0085, null, null, em.lower);
       }
-      for (const bm of browMeshes) makeTube('', browPath(bm.brow), 0.011, bm.mesh);
+      for (const bm of browMeshes) makeTube('', browPath(bm.brow), 0.011, null, null, bm.mesh);
       const np = nosePaths();
-      makeTube('', np.bridge, 0.009,  noseBridgeMesh);
-      makeTube('', np.leftN,  0.0085, noseLeftMesh);
-      makeTube('', np.rightN, 0.0085, noseRightMesh);
+      makeTube('', np.bridge, 0.009,  null, null, noseBridgeMesh);
+      makeTube('', np.leftN,  0.0085, null, null, noseLeftMesh);
+      makeTube('', np.rightN, 0.0085, null, null, noseRightMesh);
     }
 
     /* ── per-frame face update ── */
@@ -1336,10 +1355,44 @@
       }
     }
 
-    /* ── color application ── */
+    /* ── color application ──
+       Per-feature mouth/eye/nose materials inherit lineColor when their
+       per-feature override is null. So applyLineColor pushes into all three
+       inheriting materials; the per-feature setters override that. */
     function applyLineColor(hex) {
       config.lineColor = hex;
-      minimalMat.emissiveColor = BABYLON.Color3.FromHexString(hex);
+      const c = BABYLON.Color3.FromHexString(hex);
+      if (!config.mouthColor) mouthMat.emissiveColor = c;
+      if (!config.eyeColor)   eyeMat.emissiveColor   = c;
+      if (!config.noseColor)  noseMat.emissiveColor  = c;
+    }
+    function applyMouthColor(hex) {
+      config.mouthColor = hex;
+      mouthMat.emissiveColor = BABYLON.Color3.FromHexString(hex || config.lineColor);
+    }
+    function applyEyeColor(hex) {
+      config.eyeColor = hex;
+      eyeMat.emissiveColor = BABYLON.Color3.FromHexString(hex || config.lineColor);
+    }
+    function applyNoseColor(hex) {
+      config.noseColor = hex;
+      noseMat.emissiveColor = BABYLON.Color3.FromHexString(hex || config.lineColor);
+    }
+    function applyBrowColor(hex) {
+      config.browColor = hex;
+      browMat.emissiveColor = BABYLON.Color3.FromHexString(hex);
+    }
+    /* per-feature visibility — independent of master `minimal` (which still
+       hides the whole minimalGroup). Each feature toggles its own meshes. */
+    function applyMinimalSubVisibility() {
+      const setVis = (m, v) => { if (m) m.isVisible = v; };
+      setVis(mouthUpperMesh, !!config.minimalMouth);
+      setVis(mouthLowerMesh, !!config.minimalMouth);
+      for (const em of eyeMeshes) { setVis(em.upper, !!config.minimalEyes); setVis(em.lower, !!config.minimalEyes); }
+      for (const bm of browMeshes) setVis(bm.mesh, !!config.minimalBrows);
+      setVis(noseBridgeMesh, !!config.minimalNose);
+      setVis(noseLeftMesh,   !!config.minimalNose);
+      setVis(noseRightMesh,  !!config.minimalNose);
     }
     function applyPupilColor(hex) {
       config.pupilColor = hex;
@@ -1360,10 +1413,6 @@
     function applyIrisColor(hex) {
       config.irisColor = hex;
       if (irisMat) irisMat.emissiveColor = BABYLON.Color3.FromHexString(hex);
-    }
-    function applyBrowColor(hex) {
-      config.browColor = hex;
-      browMat.emissiveColor = BABYLON.Color3.FromHexString(hex);
     }
 
     /* ── views ── */
@@ -1396,8 +1445,12 @@
     applyFadeColor(config.fadeColor);
     applyLineColor(config.lineColor);
     applyBrowColor(config.browColor);
+    if (config.mouthColor) applyMouthColor(config.mouthColor);
+    if (config.eyeColor)   applyEyeColor(config.eyeColor);
+    if (config.noseColor)  applyNoseColor(config.noseColor);
     applyPupilColor(config.pupilColor);
     applyIrisColor(config.irisColor);
+    applyMinimalSubVisibility();
     applyGlow();
     setView(config.cameraView);
 
@@ -1434,6 +1487,15 @@
       if (rc.eyeHoleSize !== undefined && rc.eyeHoleSize !== config.eyeHoleSize) needRebuild = true;
       if (rc.eyeDepth !== undefined && rc.eyeDepth !== config.eyeDepth) needRebuild = true;
 
+      // any per-feature thickness change requires rebuilding the affected
+      // tubes (CreateTube radius is fixed at construction)
+      const featureThicknessChanged =
+        rc.lineThickness !== undefined ||
+        rc.mouthLineThickness !== undefined ||
+        rc.eyeLineThickness !== undefined ||
+        rc.noseLineThickness !== undefined ||
+        rc.browLineThickness !== undefined;
+
       Object.assign(config, rc);
       if (p.lineColor) applyLineColor(p.lineColor);
       if (p.pupilColor) applyPupilColor(p.pupilColor);
@@ -1443,6 +1505,9 @@
       if (rc.pupilColor) applyPupilColor(rc.pupilColor);
       if (rc.irisColor)  applyIrisColor(rc.irisColor);
       if (rc.browColor)  applyBrowColor(rc.browColor);
+      if (rc.mouthColor !== undefined) applyMouthColor(rc.mouthColor);
+      if (rc.eyeColor   !== undefined) applyEyeColor(rc.eyeColor);
+      if (rc.noseColor  !== undefined) applyNoseColor(rc.noseColor);
 
       if (needRebuild) {
         rebuildMesh();
@@ -1454,9 +1519,14 @@
         applyFaceFlip();
         applyMeshVisibility();
         applyMinimalVisibility();
-        if (rc.lineThickness !== undefined) rebuildMinimalLines();
+        if (featureThicknessChanged) rebuildMinimalLines();
         if (rc.irisSize !== undefined || rc.pupils !== undefined) rebuildPupils();
         if (rc.lipVertAmp !== undefined || rc.lipPressForce !== undefined) identifyAnchorRings();
+      }
+      // per-feature visibility toggles always apply (cheap; no rebuild)
+      if (rc.minimalMouth !== undefined || rc.minimalEyes !== undefined ||
+          rc.minimalNose  !== undefined || rc.minimalBrows !== undefined) {
+        applyMinimalSubVisibility();
       }
       if (rc.glow !== undefined) applyGlow();
       // channel gains
