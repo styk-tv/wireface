@@ -6,6 +6,35 @@ Versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.3] — 2026-05-01
+
+### Fixed
+- **The 180° bug, finally.** v1.1.2 successfully switched the Scene to
+  `useRightHandedSystem: true` (verified at runtime), but I missed the
+  consequence: in RH the face's native orientation (built by
+  `warpToFace` with `+Z = nose forward`) already faces the default
+  `ArcRotateCamera`. Applying `flipFace: true` (the legacy default)
+  then rotated the face **180° AWAY** from the camera — exactly the
+  reversed view the user reported, including in incognito.
+
+  Fix: invert `applyFaceFlip`'s effect.
+  - `flipFace: true` (legacy default) → **no rotation** → face toward
+    camera (correct, the visible behavior of every preset saved under
+    LH is preserved).
+  - `flipFace: false` → 180° rotation around Y → face away from camera
+    (matches the OLD `flipFace: false` visual; toggle still does
+    "flip the face").
+
+  Two-line fix in lib + editor:
+  ```js
+  // before:  faceRoot.rotation.y = config.flipFace ? Math.PI : 0;
+  // after:   faceRoot.rotation.y = config.flipFace ? 0 : Math.PI;
+  ```
+  Existing presets render visually identical to their LH-era behavior.
+  New default first-load shows face front-on. Verified in editor (fresh
+  load + incognito): front view face front-on, profile view face's
+  right side, three-quarter the conventional portrait angle.
+
 ## [1.1.2] — 2026-05-01
 
 ### Fixed
@@ -242,7 +271,8 @@ Initial release.
 - CDN distribution via jsDelivr + unpkg, both indented (`wireface.js`) and
   minified (`dist/wireface.min.js`) flavors.
 
-[Unreleased]: https://github.com/styk-tv/wireface/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/styk-tv/wireface/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/styk-tv/wireface/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/styk-tv/wireface/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/styk-tv/wireface/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/styk-tv/wireface/compare/v1.0.2...v1.1.0

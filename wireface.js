@@ -850,7 +850,18 @@
     }
 
     function applyFaceFlip() {
-      if (faceRoot) faceRoot.rotation.y = config.flipFace ? Math.PI : 0;
+      // In RH (v1.1.2+), the face's native orientation already faces the
+      // ArcRotateCamera. The legacy `flipFace: true` default came from LH,
+      // where it was needed to rotate the face π around Y so the front
+      // showed. After the RH switch, doing that rotation now turns the face
+      // AWAY from the camera. We INVERT the boolean's effect so:
+      //   flipFace: true (legacy default) → no rotation → face toward camera
+      //   flipFace: false                  → 180° rotation → face away
+      // This preserves the visual behavior of every existing preset
+      // unchanged across the LH→RH switch and keeps the toggle label
+      // ("flip face 180°") meaningful — the toggle's OFF state shows the
+      // face flipped, just like before.
+      if (faceRoot) faceRoot.rotation.y = config.flipFace ? 0 : Math.PI;
     }
     function applyMeshVisibility() {
       if (mesh) mesh.isVisible = !!config.meshVisible;

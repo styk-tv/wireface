@@ -1214,7 +1214,10 @@ function applyEyeAnchors(disp) {
 }
 
 function applyFaceFlip() {
-  faceRoot.rotation.y = renderConfig.flipFace ? Math.PI : 0;
+  // v1.1.3: inverted in RH coord system — see lib's applyFaceFlip comment.
+  // flipFace=true (legacy default) → no rotation → face toward camera
+  // flipFace=false                  → 180° rotation → face away
+  faceRoot.rotation.y = renderConfig.flipFace ? 0 : Math.PI;
 }
 
 function applyMeshVisibility() {
