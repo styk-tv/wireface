@@ -265,11 +265,26 @@ Issues, PRs, and ideas are very welcome. Anything that's fair game:
 - mood blends, idle micro-motion presets, eye-look behaviors
 - performance / memory tweaks (smaller draws, tighter geometry rebuilds, WebGPU path)
 - alternative renderers (svg, 2d-canvas) sharing the same channel surface
-- new preset packs (drop them in [`examples/presets/`](examples/presets/))
 - editor UX: keyboard shortcuts, undo, multi-channel keyframing
 - docs, typos, clearer onboarding
 
 Open an [issue](https://github.com/styk-tv/wireface/issues) or send a PR — small ones are perfect.
+
+### 🎨 Send us your presets!
+
+The single most useful contribution is **a preset of your own face**. Take
+the [editor](examples/editor.html), tune sliders + colours + channel gains
+until you've got something that feels like a character to you, then hit
+**+ save preset → ↓ download** and submit a PR adding the JSON to
+[`examples/presets/`](examples/presets/) with a one-line README entry
+describing the vibe (e.g. "scared crocodile", "neon priest", "low-poly
+robot"). Author yourself in the filename or a comment — we'll keep
+attribution intact.
+
+The two presets bundled today (`asset-th5rha`, `asset-ydr7de`) are
+starting points, not the canon. The library's whole point is character
+variety, and the only way that scales is community-built preset packs.
+Same kind of generosity that built the demoscene.
 
 ## Show & tell
 
