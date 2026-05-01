@@ -961,11 +961,13 @@
     }
 
     /* makeTube creates a new tube OR updates an existing one in-place.
-       For new tubes (instance=null) caller passes the per-feature material
-       and per-feature thickness multiplier; final radius =
-       baseRadius * featureMul * config.lineThickness (global). */
+       Final radius = baseRadius * featureMul * config.lineThickness — applied
+       in BOTH new and instance forms. Babylon's CreateTube instance-form
+       applies opts.radius every call (it does not preserve the radius from
+       construction), so updateMinimal MUST pass the current featureMul each
+       frame or the tube collapses to (base × 1 × lineThickness). */
     function makeTube(name, points, radius, mat, featureMul, instance) {
-      const r = instance ? radius : radius * (featureMul || 1) * config.lineThickness;
+      const r = radius * (featureMul == null ? 1 : featureMul) * config.lineThickness;
       const opts = { path: points, radius: r, tessellation: 6, updatable: true };
       if (instance) opts.instance = instance;
       const tube = BABYLON.MeshBuilder.CreateTube(name, opts, scene);
@@ -1083,18 +1085,23 @@
 
     function updateMinimal() {
       if (!mouthUpperMesh) return;
+      // Babylon's CreateTube instance-form applies opts.radius EVERY call —
+      // it doesn't preserve the radius from construction. So we must pass the
+      // current per-feature thickness multiplier on every frame, otherwise
+      // the tube collapses back to (base × 1 × lineThickness) and the
+      // per-feature slider has no visible effect.
       const mp = mouthLipPaths();
-      makeTube('', mp.upper, 0.010, null, null, mouthUpperMesh);
-      makeTube('', mp.lower, 0.010, null, null, mouthLowerMesh);
+      makeTube('', mp.upper, 0.010, null, config.mouthLineThickness, mouthUpperMesh);
+      makeTube('', mp.lower, 0.010, null, config.mouthLineThickness, mouthLowerMesh);
       for (const em of eyeMeshes) {
-        makeTube('', eyePath(em.eye, true),  0.0085, null, null, em.upper);
-        makeTube('', eyePath(em.eye, false), 0.0085, null, null, em.lower);
+        makeTube('', eyePath(em.eye, true),  0.0085, null, config.eyeLineThickness, em.upper);
+        makeTube('', eyePath(em.eye, false), 0.0085, null, config.eyeLineThickness, em.lower);
       }
-      for (const bm of browMeshes) makeTube('', browPath(bm.brow), 0.011, null, null, bm.mesh);
+      for (const bm of browMeshes) makeTube('', browPath(bm.brow), 0.011, null, config.browLineThickness, bm.mesh);
       const np = nosePaths();
-      makeTube('', np.bridge, 0.009,  null, null, noseBridgeMesh);
-      makeTube('', np.leftN,  0.0085, null, null, noseLeftMesh);
-      makeTube('', np.rightN, 0.0085, null, null, noseRightMesh);
+      makeTube('', np.bridge, 0.009,  null, config.noseLineThickness, noseBridgeMesh);
+      makeTube('', np.leftN,  0.0085, null, config.noseLineThickness, noseLeftMesh);
+      makeTube('', np.rightN, 0.0085, null, config.noseLineThickness, noseRightMesh);
     }
 
     /* ── per-frame face update ── */

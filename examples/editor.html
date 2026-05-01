@@ -1640,7 +1640,11 @@ function smoothPath(controls, samples = 18) {
 }
 
 function makeTube(name, points, radius, mat, featureMul, instance) {
-  const r = instance ? radius : radius * (featureMul || 1) * renderConfig.lineThickness;
+  // Final radius = base × featureMul × lineThickness — applied in BOTH new
+  // and instance forms. Babylon's CreateTube instance-form applies
+  // opts.radius every call (does not preserve construction radius), so
+  // updateMinimal MUST pass the current featureMul each frame.
+  const r = radius * (featureMul == null ? 1 : featureMul) * renderConfig.lineThickness;
   const opts = { path: points, radius: r, tessellation: 6, updatable: true };
   if (instance) opts.instance = instance;
   const tube = BABYLON.MeshBuilder.CreateTube(name, opts, scene);
@@ -1780,24 +1784,25 @@ function rebuildMinimalLines() {
 rebuildMinimalLines();
 
 function updateMinimal() {
-  // mouth
+  // Babylon's CreateTube instance-form applies opts.radius every call —
+  // it doesn't preserve the radius from construction. So we MUST pass the
+  // current per-feature thickness multiplier on every frame, otherwise the
+  // tube collapses back to (base × 1 × lineThickness) and the per-feature
+  // slider has no visible effect (only one frame after rebuildMinimalLines).
   const mp = mouthLipPaths();
-  makeTube('', mp.upper, 0.010, null, null, mouthUpperMesh);
-  makeTube('', mp.lower, 0.010, null, null, mouthLowerMesh);
-  // eyes
+  makeTube('', mp.upper, 0.010, null, renderConfig.mouthLineThickness, mouthUpperMesh);
+  makeTube('', mp.lower, 0.010, null, renderConfig.mouthLineThickness, mouthLowerMesh);
   for (const em of eyeMeshes) {
-    makeTube('', eyePath(em.eye, true),  0.0085, null, null, em.upper);
-    makeTube('', eyePath(em.eye, false), 0.0085, null, null, em.lower);
+    makeTube('', eyePath(em.eye, true),  0.0085, null, renderConfig.eyeLineThickness, em.upper);
+    makeTube('', eyePath(em.eye, false), 0.0085, null, renderConfig.eyeLineThickness, em.lower);
   }
-  // brows
   for (const bm of browMeshes) {
-    makeTube('', browPath(bm.brow), 0.011, null, null, bm.mesh);
+    makeTube('', browPath(bm.brow), 0.011, null, renderConfig.browLineThickness, bm.mesh);
   }
-  // nose
   const np = nosePaths();
-  makeTube('', np.bridge, 0.009,  null, null, noseBridgeMesh);
-  makeTube('', np.leftN,  0.0085, null, null, noseLeftMesh);
-  makeTube('', np.rightN, 0.0085, null, null, noseRightMesh);
+  makeTube('', np.bridge, 0.009,  null, renderConfig.noseLineThickness, noseBridgeMesh);
+  makeTube('', np.leftN,  0.0085, null, renderConfig.noseLineThickness, noseLeftMesh);
+  makeTube('', np.rightN, 0.0085, null, renderConfig.noseLineThickness, noseRightMesh);
 }
 
 function applyMinimalSubVisibility() {

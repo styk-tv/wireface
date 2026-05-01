@@ -78,6 +78,21 @@ minimal-line controls**. Not on npm yet.
   state of those flags. Now `applyPreset` ends with a coordinated
   `rebuildMesh + rebuildPupils + rebuildMinimalLines + applyMinimalSubVisibility`
   so a preset roundtrip is faithful.
+- **Per-feature line thickness was a one-frame ghost in WIRE mode**
+  (lib + editor). `rebuildMinimalLines` correctly built each tube with
+  `radius × featureMul × lineThickness`, but `updateMinimal` (called
+  every frame to refresh the tube path) used Babylon's
+  `MeshBuilder.CreateTube` *instance form* — which **re-applies
+  `opts.radius` on every call**, it does not preserve the construction
+  radius. The per-frame `makeTube` invocations passed `featureMul =
+  null` (defaulting to 1), so each frame the tube collapsed back to
+  `base × 1 × lineThickness`. The per-feature slider's visible effect
+  lasted exactly one frame after each rebuild — too brief to see while
+  dragging. Fix: `updateMinimal` now passes the current per-feature
+  multiplier from config on every call, and `makeTube` always applies
+  the multiplier in both new and instance forms. Verified visually in
+  WIRE mode at `mouthLineThickness = 0.20` (hairline) vs `4.00` (thick
+  bar).
 
 ### Added (continued)
 - **Editor: `eyeHoleSize` slider** in the EYES panel (was missing from the
