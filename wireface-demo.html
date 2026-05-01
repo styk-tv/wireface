@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<!--
+  wireface-demo.html — two-instance demo for wireface.js
+  Copyright (c) 2026 Peter Styk
+  Released under the MIT License — see LICENSE in the repository root.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WIREFACE — two-instance demo</title>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --bg-soft: #141414;
+    --fg: #f4f4f0;
+    --dim: #888;
+    --border: rgba(255,255,255,0.10);
+    --border-bright: rgba(255,255,255,0.22);
+    --accent: #f5e663;
+    --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', 'Monaco', 'Cascadia Code', monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; margin: 0; background: var(--bg); color: var(--fg); font-family: var(--mono); font-weight: 300; -webkit-font-smoothing: antialiased; }
+
+  header { display: flex; align-items: center; gap: 14px; padding: 16px 22px; border-bottom: 1px solid var(--border); }
+  header .mark { font-size: 13px; letter-spacing: 0.3em; font-weight: 500; }
+  header .sub { font-size: 11px; color: var(--dim); letter-spacing: 0.18em; text-transform: uppercase; }
+
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 0; height: calc(100vh - 54px); }
+
+  .panel { position: relative; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+  .panel:last-child { border-right: none; }
+
+  .pl-label { display: flex; justify-content: space-between; padding: 10px 16px; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); border-bottom: 1px solid var(--border); }
+  .pl-label .name { color: var(--fg); }
+  .pl-label .meta { font-variant-numeric: tabular-nums; }
+
+  .canvas-wrap { flex: 1; position: relative; min-height: 0; background: #000; }
+  canvas { width: 100%; height: 100%; display: block; outline: none; touch-action: none; }
+
+  /* drop zone — overlays the canvas, becomes visible during drag */
+  .drop-overlay {
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    background: rgba(0,0,0,0.6);
+    border: 2px dashed var(--accent);
+    color: var(--accent);
+    font-size: 13px; letter-spacing: 0.2em; text-transform: uppercase;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .panel.drag-over .drop-overlay { opacity: 1; }
+
+  /* per-instance controls strip below canvas */
+  .controls {
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+  }
+  .controls button {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--border-bright);
+    padding: 7px 12px;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .controls button:hover { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  .controls button:disabled { opacity: 0.3; cursor: not-allowed; }
+  .controls button:disabled:hover { background: transparent; color: var(--fg); border-color: var(--border-bright); }
+
+  .file-info {
+    font-size: 10px;
+    color: var(--dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-left: 2px solid var(--border-bright);
+    padding-left: 10px;
+  }
+  .file-info b { color: var(--fg); font-weight: 400; }
+
+  .moods {
+    display: flex;
+    gap: 4px;
+    padding: 8px 16px;
+    border-top: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .moods button {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--border);
+    padding: 5px 8px;
+    cursor: pointer;
+    flex: 1;
+    min-width: 0;
+  }
+  .moods button:hover { background: rgba(255,255,255,0.05); }
+  .moods button.on { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
+  .hint {
+    position: absolute; left: 12px; bottom: 12px;
+    font-size: 9px; color: var(--dim);
+    letter-spacing: 0.1em; text-transform: uppercase;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  @media (max-width: 880px) {
+    main { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; height: calc(200vh - 54px); }
+    .panel { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="mark">WIREFACE</div>
+  <div class="sub">two-instance demo · drop a preset.json or audio file onto each panel</div>
+</header>
+
+<main>
+  <section class="panel" data-instance="left">
+    <div class="pl-label"><span class="name">left</span><span class="meta" data-meta>—</span></div>
+    <div class="canvas-wrap">
+      <canvas data-canvas></canvas>
+      <div class="drop-overlay">drop preset.json or audio file</div>
+      <div class="hint">drop here · click ▶ to play</div>
+    </div>
+    <div class="controls">
+      <button data-action="play">▶ play</button>
+      <button data-action="stop">■ stop</button>
+      <div class="file-info"><b data-audio-name>no audio loaded</b></div>
+      <button data-action="loop" data-on="1">⟲ loop</button>
+    </div>
+    <div class="moods">
+      <button data-mood="neutral" class="on">neutral</button>
+      <button data-mood="happy">happy</button>
+      <button data-mood="sad">sad</button>
+      <button data-mood="angry">angry</button>
+      <button data-mood="fear">fear</button>
+      <button data-mood="surprise">surpr</button>
+      <button data-mood="sleep">sleep</button>
+    </div>
+  </section>
+
+  <section class="panel" data-instance="right">
+    <div class="pl-label"><span class="name">right</span><span class="meta" data-meta>—</span></div>
+    <div class="canvas-wrap">
+      <canvas data-canvas></canvas>
+      <div class="drop-overlay">drop preset.json or audio file</div>
+      <div class="hint">drop here · click ▶ to play</div>
+    </div>
+    <div class="controls">
+      <button data-action="play">▶ play</button>
+      <button data-action="stop">■ stop</button>
+      <div class="file-info"><b data-audio-name>no audio loaded</b></div>
+      <button data-action="loop" data-on="1">⟲ loop</button>
+    </div>
+    <div class="moods">
+      <button data-mood="neutral" class="on">neutral</button>
+      <button data-mood="happy">happy</button>
+      <button data-mood="sad">sad</button>
+      <button data-mood="angry">angry</button>
+      <button data-mood="fear">fear</button>
+      <button data-mood="surprise">surpr</button>
+      <button data-mood="sleep">sleep</button>
+    </div>
+  </section>
+</main>
+
+<!-- Babylon (peer) + library -->
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="wireface.js"></script>
+
+<script>
+/* Mount one wireface instance per panel and wire per-instance drag-drop +
+   transport buttons + mood buttons + audio name display. Each panel is a
+   self-contained little widget that knows nothing about the other one. */
+
+function mountPanel(panelEl) {
+  const canvas      = panelEl.querySelector('[data-canvas]');
+  const meta        = panelEl.querySelector('[data-meta]');
+  const audioName   = panelEl.querySelector('[data-audio-name]');
+  const playBtn     = panelEl.querySelector('[data-action="play"]');
+  const stopBtn     = panelEl.querySelector('[data-action="stop"]');
+  const loopBtn     = panelEl.querySelector('[data-action="loop"]');
+  const moodBtns    = panelEl.querySelectorAll('[data-mood]');
+
+  const wf = createWireface(canvas);
+  let presetName = null;
+
+  /* --- transport --- */
+  function setPlayUI(playing) {
+    playBtn.textContent = playing ? '❚❚ pause' : '▶ play';
+  }
+  playBtn.addEventListener('click', () => {
+    if (wf.isPlaying()) {
+      wf.pause();
+      setPlayUI(false);
+    } else {
+      wf.play();
+      setPlayUI(true);
+    }
+  });
+  stopBtn.addEventListener('click', () => {
+    wf.stop();
+    setPlayUI(false);
+  });
+  loopBtn.addEventListener('click', () => {
+    const isOn = loopBtn.dataset.on === '1';
+    const next = !isOn;
+    loopBtn.dataset.on = next ? '1' : '0';
+    loopBtn.style.color = next ? 'var(--accent)' : '';
+    wf.setLoop(next);
+  });
+  // initial loop state from button
+  wf.setLoop(loopBtn.dataset.on === '1');
+  loopBtn.style.color = 'var(--accent)';
+
+  /* --- mood pills --- */
+  for (const b of moodBtns) {
+    b.addEventListener('click', () => {
+      moodBtns.forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      wf.setMood(b.dataset.mood);
+    });
+  }
+
+  /* --- drag/drop: detect file type by extension/MIME, route accordingly --- */
+  panelEl.addEventListener('dragenter', e => { e.preventDefault(); panelEl.classList.add('drag-over'); });
+  panelEl.addEventListener('dragover',  e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+  panelEl.addEventListener('dragleave', e => {
+    if (e.target === panelEl || !panelEl.contains(e.relatedTarget)) panelEl.classList.remove('drag-over');
+  });
+  panelEl.addEventListener('drop', async e => {
+    e.preventDefault();
+    panelEl.classList.remove('drag-over');
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!file) return;
+    await ingestFile(file);
+  });
+
+  async function ingestFile(file) {
+    const isJson  = /\.json$/i.test(file.name) || file.type === 'application/json';
+    const isAudio = file.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|flac|aac|opus)$/i.test(file.name);
+    if (isJson) {
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        // Saved exports are either a single preset object or an array of them.
+        const preset = Array.isArray(data) ? data[0] : data;
+        wf.loadPreset(preset);
+        presetName = preset.name || file.name.replace(/\.json$/i, '');
+        meta.textContent = 'preset: ' + presetName;
+      } catch (err) {
+        console.warn('[wireface] preset parse failed', err);
+        meta.textContent = 'preset error';
+      }
+    } else if (isAudio) {
+      try {
+        await wf.loadAudio(file);
+        audioName.textContent = file.name;
+      } catch (err) {
+        console.warn('[wireface] audio decode failed', err);
+        audioName.textContent = 'decode failed';
+      }
+    } else {
+      console.warn('[wireface] unsupported file type', file.type, file.name);
+    }
+  }
+
+  /* --- expose for console poking --- */
+  return wf;
+}
+
+window.wirefaceLeft  = mountPanel(document.querySelector('[data-instance="left"]'));
+window.wirefaceRight = mountPanel(document.querySelector('[data-instance="right"]'));
+</script>
+</body>
+</html>

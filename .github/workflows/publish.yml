@@ -1,0 +1,45 @@
+name: publish
+
+# Triggers npm publish on either:
+#   1. push of a version tag like v1.0.0  (recommended — git tag drives release)
+#   2. manual run from the Actions tab    (workflow_dispatch)
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # for npm provenance
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: install
+        run: npm install --no-audit --no-fund
+
+      - name: build (indented + minified bundles)
+        run: npm run build
+
+      - name: verify tag matches package.json (only on tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF#refs/tags/v}"
+          if [ "$PKG" != "$TAG" ]; then
+            echo "package.json version ($PKG) does not match tag ($TAG)"
+            exit 1
+          fi
+
+      - name: publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
