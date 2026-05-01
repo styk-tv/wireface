@@ -1367,26 +1367,38 @@
       for (const v of Object.keys(VISEME_PARAMS)) {
         if (v !== 'sil') stateTarget['viseme_' + v] = 0;
       }
-      // Heuristic mapping
-      if (eSib > 0.35 && eSib > eMid * 0.8) {
-        stateTarget.viseme_SS = Math.min(1, eSib * 1.3);
-        stateTarget.viseme_FF = Math.min(0.6, eAir * 1.2);
+      // Proportional viseme allocation. v1.1.5: previous version was a
+      // winner-takes-all branch tree where viseme_aa fired for any vowel-
+      // like sound with low+mid energy, dominating with avg ~0.77 on TTS
+      // input and leaving the mouth stuck wide-open. This approach instead
+      // distributes amp across visemes by their corresponding band's share
+      // of total energy, so the mouth shape blends through the audio's
+      // formant spectrum frame-by-frame.
+      const totalE = eLow + eMid + eHi + eSib + 1e-6;
+      // Sibilants — sharp, high-energy fricatives. Boost separately because
+      // they need to register as distinct mouth shapes (close lips + teeth)
+      // even at modest absolute energy.
+      if (eSib > 0.20) {
+        stateTarget.viseme_SS = Math.min(1, eSib * 1.4);
+        if (eAir > 0.20) stateTarget.viseme_FF = Math.min(0.7, eAir * 0.9);
       }
+      // Vowels — proportional distribution across F1/F2 bands.
+      // viseme_O uses low energy when low dominates (back rounded vowel).
+      // viseme_aa uses mid energy (open vowel — F1 mid+low balanced).
+      // viseme_E uses mid energy in front vowel range.
+      // viseme_I uses high energy (high F2 = front close vowel).
+      // viseme_U uses low when low dominates AND amp moderate (closed back).
+      const wLow = eLow / totalE, wMid = eMid / totalE, wHi = eHi / totalE;
       if (eLow > eMid && eLow > 0.18) {
-        if (eHi > 0.25) {
-          stateTarget.viseme_aa = Math.min(1, eLow * 1.2);
-        } else {
-          stateTarget.viseme_O  = Math.min(1, eLow * 1.2);
-          stateTarget.viseme_U  = Math.min(0.7, eLow * 0.9);
-        }
-      } else if (eMid > 0.20) {
-        if (eHi > eMid * 0.6) {
-          stateTarget.viseme_I = Math.min(1, eHi * 1.4);
-          stateTarget.viseme_E = Math.min(0.7, eMid * 1.1);
-        } else {
-          stateTarget.viseme_E = Math.min(1, eMid * 1.3);
-          stateTarget.viseme_aa = Math.min(0.4, eLow * 0.9);
-        }
+        // back vowel territory
+        stateTarget.viseme_O  = Math.min(1, eLow * 1.1 * (eHi < 0.20 ? 1.1 : 0.8));
+        stateTarget.viseme_aa = Math.min(1, wMid * amp * 1.6);
+        if (eHi < 0.18) stateTarget.viseme_U = Math.min(0.7, eLow * 0.9);
+      } else if (eMid >= eLow * 0.9) {
+        // mid / front vowel territory
+        stateTarget.viseme_aa = Math.min(1, wLow * amp * 1.6);
+        stateTarget.viseme_E  = Math.min(1, wMid * amp * 1.4);
+        if (eHi > 0.18) stateTarget.viseme_I = Math.min(1, wHi * amp * 1.5);
       }
     }
 

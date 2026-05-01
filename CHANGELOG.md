@@ -6,6 +6,29 @@ Versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.5] — 2026-05-01
+
+### Fixed
+- **Audio analyzer was winner-takes-all → `viseme_aa` dominated at avg
+  0.77 on TTS speech**, leaving the mouth stuck wide-open and
+  unreactive. Replaced the branch-tree heuristic with proportional
+  band-share allocation: each viseme's target gets a slice of the
+  current amp weighted by its corresponding frequency band's share of
+  total energy. Sibilants (`SS`, `FF`) get a separate boost so they
+  register as distinct mouth shapes even at modest absolute energy.
+
+  Verified with playwright on the bundled Kokoro TTS sample:
+
+  | Channel | 1.1.4 avg | 1.1.5 avg | 1.1.4 max | 1.1.5 max |
+  |---------|-----------|-----------|-----------|-----------|
+  | `viseme_aa` | 0.77 | 0.32 | 0.98 | 0.41 |
+  | `viseme_O`  | 0.10 | 0.66 | 0.52 | 0.79 |
+  | `viseme_SS` | 0.01 | 0.23 | 0.12 | 0.73 |
+  | `viseme_FF` | 0.01 | 0.22 | 0.12 | 0.55 |
+
+  The mouth now shapes through the audio's formant spectrum frame-by-
+  frame instead of pinning to one viseme.
+
 ## [1.1.4] — 2026-05-01
 
 ### Fixed
@@ -309,7 +332,8 @@ Initial release.
 - CDN distribution via jsDelivr + unpkg, both indented (`wireface.js`) and
   minified (`dist/wireface.min.js`) flavors.
 
-[Unreleased]: https://github.com/styk-tv/wireface/compare/v1.1.4...HEAD
+[Unreleased]: https://github.com/styk-tv/wireface/compare/v1.1.5...HEAD
+[1.1.5]: https://github.com/styk-tv/wireface/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/styk-tv/wireface/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/styk-tv/wireface/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/styk-tv/wireface/compare/v1.1.1...v1.1.2
