@@ -850,18 +850,12 @@
     }
 
     function applyFaceFlip() {
-      // In RH (v1.1.2+), the face's native orientation already faces the
-      // ArcRotateCamera. The legacy `flipFace: true` default came from LH,
-      // where it was needed to rotate the face π around Y so the front
-      // showed. After the RH switch, doing that rotation now turns the face
-      // AWAY from the camera. We INVERT the boolean's effect so:
-      //   flipFace: true (legacy default) → no rotation → face toward camera
-      //   flipFace: false                  → 180° rotation → face away
-      // This preserves the visual behavior of every existing preset
-      // unchanged across the LH→RH switch and keeps the toggle label
-      // ("flip face 180°") meaningful — the toggle's OFF state shows the
-      // face flipped, just like before.
-      if (faceRoot) faceRoot.rotation.y = config.flipFace ? 0 : Math.PI;
+      // Original semantic: flipFace=true rotates 180° around Y so face's
+      // nose ends up at -z, which is closer to the default ArcRotateCamera
+      // at world z=-radius. RH coord system (set on the scene) doesn't
+      // change ArcRotateCamera's position, only material/winding behavior,
+      // so the face still NEEDS this rotation in RH.
+      if (faceRoot) faceRoot.rotation.y = config.flipFace ? Math.PI : 0;
     }
     function applyMeshVisibility() {
       if (mesh) mesh.isVisible = !!config.meshVisible;
@@ -1199,9 +1193,13 @@
       }
       updatePupils();
       if (config.minimal) updateMinimal();
-      // head pose drives parent
+      // head pose drives parent. The Y rotation must include the flipFace
+      // base rotation, otherwise this per-frame write would wipe out the
+      // π flip set by applyFaceFlip and the face would render with its
+      // back to the camera (it lasted only the first frame). v1.1.4 fix.
+      const flipBase = config.flipFace ? Math.PI : 0;
       faceRoot.rotation.x = state.headRotateX * 0.35;
-      faceRoot.rotation.y = state.headRotateY * 0.50;
+      faceRoot.rotation.y = flipBase + state.headRotateY * 0.50;
       faceRoot.rotation.z = state.headRotateZ * 0.30;
       // restore
       for (let i = 0; i < CHANNEL_NAMES.length; i++) state[CHANNEL_NAMES[i]] = _stateRawSnap[CHANNEL_NAMES[i]];

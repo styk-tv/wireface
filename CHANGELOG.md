@@ -6,6 +6,44 @@ Versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.4] — 2026-05-01
+
+### Fixed
+- **The 180° bug, finally finally.** Three releases of "fix" attempts all
+  missed the actual root cause: `updateFace` writes
+  `faceRoot.rotation.y = state.headRotateY * 0.50` every frame to drive
+  the head-pose channel, which **wipes out** the π rotation set by
+  `applyFaceFlip` at init. The flip lasted exactly one frame, then got
+  stomped. The face has therefore been at its native orientation since
+  v1.0 — back of head facing camera. Front view hid this because the
+  face is L-R symmetric; user reported the bug was only visible at
+  3/4 view, where you can see depth ordering (irises sat behind the
+  wireframe).
+
+  Confirmed empirically with bounding-box probes:
+  - Before fix: `faceRoot.rotation.y ≈ -0.045` (just idle micro-motion);
+    face's nose at z=+0.469 → distance to camera = 4.869 (FAR);
+    face's back at z=-0.060 → distance = 4.340 (CLOSE) ⇒ camera saw back
+  - After fix: `faceRoot.rotation.y ≈ 3.122` (= π + idle);
+    rotated nose at z=-0.453 → distance = 3.947 (CLOSE);
+    rotated back at z=+0.039 → distance = 4.439 (FAR) ⇒ camera sees front
+
+  Fix: include the flipFace base rotation in the per-frame Y write so
+  it persists.
+  ```js
+  // before:  faceRoot.rotation.y = state.headRotateY * 0.50;
+  // after:   const flipBase = config.flipFace ? Math.PI : 0;
+  //          faceRoot.rotation.y = flipBase + state.headRotateY * 0.50;
+  ```
+  Reverted the bogus 1.1.3 inversion of `applyFaceFlip` (the original
+  semantic was right; the bug was elsewhere). Both lib and editor get
+  the same two-line fix.
+
+### Reverted
+- 1.1.3's `applyFaceFlip` inversion (`flipFace ? 0 : Math.PI`). It
+  produced visually-correct front view by accident (mesh symmetry) but
+  was structurally backwards. Restored to `flipFace ? Math.PI : 0`.
+
 ## [1.1.3] — 2026-05-01
 
 ### Fixed
@@ -271,7 +309,8 @@ Initial release.
 - CDN distribution via jsDelivr + unpkg, both indented (`wireface.js`) and
   minified (`dist/wireface.min.js`) flavors.
 
-[Unreleased]: https://github.com/styk-tv/wireface/compare/v1.1.3...HEAD
+[Unreleased]: https://github.com/styk-tv/wireface/compare/v1.1.4...HEAD
+[1.1.4]: https://github.com/styk-tv/wireface/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/styk-tv/wireface/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/styk-tv/wireface/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/styk-tv/wireface/compare/v1.1.0...v1.1.1

@@ -1214,10 +1214,11 @@ function applyEyeAnchors(disp) {
 }
 
 function applyFaceFlip() {
-  // v1.1.3: inverted in RH coord system — see lib's applyFaceFlip comment.
-  // flipFace=true (legacy default) → no rotation → face toward camera
-  // flipFace=false                  → 180° rotation → face away
-  faceRoot.rotation.y = renderConfig.flipFace ? 0 : Math.PI;
+  // flipFace=true rotates the face 180° around Y so its nose (at +z native)
+  // ends up at -z, closer to the default ArcRotateCamera at world z=-radius.
+  // RH coord system doesn't change camera position — only material winding —
+  // so the rotation is still required in RH for the face to face camera.
+  faceRoot.rotation.y = renderConfig.flipFace ? Math.PI : 0;
 }
 
 function applyMeshVisibility() {
@@ -1547,9 +1548,13 @@ function updateFace() {
   updatePupils();
   if (renderConfig.minimal) updateMinimal();
 
-  // head pose drives the parent transform
+  // head pose drives the parent transform. The Y rotation must include
+  // the flipFace base rotation, otherwise this per-frame write wipes out
+  // applyFaceFlip's π rotation and the face renders with its back to the
+  // camera. v1.1.4 fix.
+  const flipBase = renderConfig.flipFace ? Math.PI : 0;
   faceRoot.rotation.x = state.headRotateX * 0.35;
-  faceRoot.rotation.y = state.headRotateY * 0.50;
+  faceRoot.rotation.y = flipBase + state.headRotateY * 0.50;
   faceRoot.rotation.z = state.headRotateZ * 0.30;
 
   /* restore raw state — bar display, recording, etc. should see un-gained values */
