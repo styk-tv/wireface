@@ -271,93 +271,81 @@
       </div>
     </div>
 
+    <!-- ─── MESH ─────────────────────────────────────────────── -->
     <div class="panel">
-      <h3>render <span class="num">mesh</span></h3>
-
+      <h3>mesh <span class="num">geo</span></h3>
       <div class="ctl"><div class="ctl-name">cols</div><div class="ctl-bar" data-rcfg="meshCols"  data-min="5" data-max="21" data-step="2"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="meshCols">7</div></div>
       <div class="ctl"><div class="ctl-name">rows</div><div class="ctl-bar" data-rcfg="meshRows"  data-min="7" data-max="25" data-step="2"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="meshRows">9</div></div>
-      <div class="ctl"><div class="ctl-name">nose</div><div class="ctl-bar" data-rcfg="scaleNose" data-min="0.4" data-max="2.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="scaleNose">1.00</div></div>
-      <div class="ctl"><div class="ctl-name">eyes</div><div class="ctl-bar" data-rcfg="scaleEyes" data-min="0.4" data-max="2.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="scaleEyes">1.00</div></div>
-      <div class="ctl"><div class="ctl-name">mouth</div><div class="ctl-bar" data-rcfg="scaleMouth" data-min="0.4" data-max="2.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="scaleMouth">1.00</div></div>
       <div class="ctl"><div class="ctl-name">react</div><div class="ctl-bar" data-rcfg="reactivity" data-min="0" data-max="0.6" data-step="0.02"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="reactivity">0.25</div></div>
       <div class="ctl"><div class="ctl-name">spread</div><div class="ctl-bar" data-rcfg="spread" data-min="0.5" data-max="2.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="spread">1.00</div></div>
-      <div class="ctl"><div class="ctl-name">mouth ⊘</div><div class="ctl-bar" data-rcfg="mouthHoleSize" data-min="0.4" data-max="2.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="mouthHoleSize">1.00</div></div>
-      <div class="ctl"><div class="ctl-name">eye depth</div><div class="ctl-bar" data-rcfg="eyeDepth" data-min="0" data-max="5" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="eyeDepth">1.00</div></div>
-      <div class="ctl"><div class="ctl-name">line ━</div><div class="ctl-bar" data-rcfg="lineThickness" data-min="0.4" data-max="3.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="lineThickness">1.00</div></div>
+      <div class="ctl"><div class="ctl-name">scale nose</div><div class="ctl-bar" data-rcfg="scaleNose" data-min="0.4" data-max="2.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="scaleNose">1.00</div></div>
+      <div class="ctl"><div class="ctl-name">scale eyes</div><div class="ctl-bar" data-rcfg="scaleEyes" data-min="0.4" data-max="2.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="scaleEyes">1.00</div></div>
+      <div class="ctl"><div class="ctl-name">scale mouth</div><div class="ctl-bar" data-rcfg="scaleMouth" data-min="0.4" data-max="2.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="scaleMouth">1.00</div></div>
+      <div class="toggle-row"><span>show mesh</span><div class="toggle on" data-toggle="meshVisible"></div></div>
+      <div class="toggle-row"><span>fragment (oval clip)</span><div class="toggle" data-toggle="fragment"></div></div>
+    </div>
+
+    <!-- ─── MOUTH ────────────────────────────────────────────── -->
+    <div class="panel">
+      <h3>mouth <span class="num">shape</span></h3>
+      <div class="ctl"><div class="ctl-name">hole size</div><div class="ctl-bar" data-rcfg="mouthHoleSize" data-min="0.4" data-max="2.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="mouthHoleSize">1.00</div></div>
       <div class="ctl"><div class="ctl-name">lip y-amp</div><div class="ctl-bar" data-rcfg="lipVertAmp" data-min="0.5" data-max="4.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="lipVertAmp">1.60</div></div>
       <div class="ctl"><div class="ctl-name">lip close</div><div class="ctl-bar" data-rcfg="lipPressForce" data-min="0" data-max="3" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="lipPressForce">1.00</div></div>
+      <div class="ctl"><div class="ctl-name">mouth grow</div><div class="ctl-bar" data-rcfg="mouthGrow" data-min="0" data-max="1.5" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="mouthGrow">0.00</div></div>
+      <div class="toggle-row"><span>mouth hole</span><div class="toggle on" data-toggle="mouthHole"></div></div>
+      <div class="toggle-row"><span>mouth anchor</span><div class="toggle on" data-toggle="mouthAnchor"></div></div>
+    </div>
 
+    <!-- ─── EYES ─────────────────────────────────────────────── -->
+    <div class="panel">
+      <h3>eyes <span class="num">shape</span></h3>
+      <div class="ctl"><div class="ctl-name">depth</div><div class="ctl-bar" data-rcfg="eyeDepth" data-min="0" data-max="5" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="eyeDepth">1.00</div></div>
+      <div class="ctl"><div class="ctl-name">hole size</div><div class="ctl-bar" data-rcfg="eyeHoleSize" data-min="0.4" data-max="2.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="eyeHoleSize">1.00</div></div>
+      <div class="toggle-row"><span>eye holes</span><div class="toggle" data-toggle="eyeHoles"></div></div>
+      <div class="toggle-row"><span>eye anchor</span><div class="toggle" data-toggle="eyeAnchor"></div></div>
+    </div>
+
+    <!-- ─── JAW DISTORTION ───────────────────────────────────── -->
+    <div class="panel">
+      <h3>jaw <span class="num">distort</span></h3>
+      <div class="ctl"><div class="ctl-name">jaw extend</div><div class="ctl-bar" data-rcfg="jawExtend" data-min="0" data-max="3" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="jawExtend">0.00</div></div>
+      <div class="ctl"><div class="ctl-name">upper jaw fwd</div><div class="ctl-bar" data-rcfg="upperJawProtrude" data-min="0" data-max="3" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="upperJawProtrude">0.00</div></div>
+      <div class="ctl"><div class="ctl-name">lower jaw fwd</div><div class="ctl-bar" data-rcfg="lowerJawProtrude" data-min="0" data-max="3" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="lowerJawProtrude">0.00</div></div>
+    </div>
+
+    <!-- ─── OVERLAY (minimal-line) ───────────────────────────── -->
+    <div class="panel">
+      <h3>overlay <span class="num">lines</span></h3>
+      <div class="toggle-row"><span>minimal (master)</span><div class="toggle on" data-toggle="minimal"></div></div>
+      <div class="toggle-row"><span>overlay → mesh</span><div class="toggle on" data-toggle="overlayTracksMesh"></div></div>
+      <div class="ctl"><div class="ctl-name">global ━</div><div class="ctl-bar" data-rcfg="lineThickness" data-min="0.4" data-max="3.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="lineThickness">1.00</div></div>
+      <div class="label" style="font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:var(--dim);margin-top:10px;margin-bottom:4px;">per-feature</div>
+      <div class="toggle-row"><span>show mouth</span><div class="toggle on" data-toggle="minimalMouth"></div></div>
+      <div class="ctl"><div class="ctl-name">mouth ━</div><div class="ctl-bar" data-rcfg="mouthLineThickness" data-min="0.2" data-max="4" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="mouthLineThickness">1.00</div></div>
+      <div class="toggle-row"><span>show eyes</span><div class="toggle on" data-toggle="minimalEyes"></div></div>
+      <div class="ctl"><div class="ctl-name">eyes ━</div><div class="ctl-bar" data-rcfg="eyeLineThickness"   data-min="0.2" data-max="4" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="eyeLineThickness">1.00</div></div>
+      <div class="toggle-row"><span>show nose</span><div class="toggle on" data-toggle="minimalNose"></div></div>
+      <div class="ctl"><div class="ctl-name">nose ━</div><div class="ctl-bar" data-rcfg="noseLineThickness"  data-min="0.2" data-max="4" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="noseLineThickness">1.00</div></div>
+      <div class="toggle-row"><span>show brows</span><div class="toggle on" data-toggle="minimalBrows"></div></div>
+      <div class="ctl"><div class="ctl-name">brows ━</div><div class="ctl-bar" data-rcfg="browLineThickness" data-min="0.2" data-max="4" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="browLineThickness">1.00</div></div>
+    </div>
+
+    <!-- ─── STYLE ────────────────────────────────────────────── -->
+    <div class="panel">
+      <h3>style <span class="num">render</span></h3>
       <div class="seg-row">
         <button data-mode="wire" class="on">wire</button>
         <button data-mode="edges">edges</button>
         <button data-mode="shaded">shaded</button>
       </div>
+      <div class="toggle-row"><span>glow / highlights</span><div class="toggle" data-toggle="glow"></div></div>
+      <div class="toggle-row"><span>pupils</span><div class="toggle" data-toggle="pupils"></div></div>
+      <div class="toggle-row"><span>flip face 180°</span><div class="toggle on" data-toggle="flipFace"></div></div>
+    </div>
 
-      <div class="toggle-row">
-        <span>mouth puncture</span>
-        <div class="toggle on" data-toggle="mouthHole"></div>
-      </div>
-      <div class="toggle-row">
-        <span>mouth anchor</span>
-        <div class="toggle on" data-toggle="mouthAnchor"></div>
-      </div>
-      <div class="toggle-row">
-        <span>eye puncture</span>
-        <div class="toggle" data-toggle="eyeHoles"></div>
-      </div>
-      <div class="toggle-row">
-        <span>eye anchor</span>
-        <div class="toggle" data-toggle="eyeAnchor"></div>
-      </div>
-      <div class="toggle-row">
-        <span>overlay → mesh</span>
-        <div class="toggle on" data-toggle="overlayTracksMesh"></div>
-      </div>
-      <div class="toggle-row">
-        <span>flip face 180°</span>
-        <div class="toggle on" data-toggle="flipFace"></div>
-      </div>
-      <div class="toggle-row">
-        <span>show mesh</span>
-        <div class="toggle on" data-toggle="meshVisible"></div>
-      </div>
-      <div class="toggle-row">
-        <span>fragment (oval clip)</span>
-        <div class="toggle" data-toggle="fragment"></div>
-      </div>
-      <div class="toggle-row">
-        <span>minimal lines</span>
-        <div class="toggle on" data-toggle="minimal"></div>
-      </div>
-      <div class="toggle-row">
-        <span>glow / highlights</span>
-        <div class="toggle" data-toggle="glow"></div>
-      </div>
-      <div class="toggle-row">
-        <span>pupils</span>
-        <div class="toggle" data-toggle="pupils"></div>
-      </div>
-
-      <div class="label" style="font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:var(--dim);margin-top:14px;margin-bottom:6px;">moods</div>
-      <div class="ctl"><div class="ctl-name">mood time</div><div class="ctl-bar" data-rcfg="moodTransitionTime" data-min="0.05" data-max="5.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="moodTransitionTime">0.60</div></div>
-
-      <div class="label" style="font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:var(--dim);margin-top:14px;margin-bottom:6px;">jaw + growth</div>
-      <div class="ctl"><div class="ctl-name">jaw extend</div><div class="ctl-bar" data-rcfg="jawExtend" data-min="0" data-max="3" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="jawExtend">0.00</div></div>
-      <div class="ctl"><div class="ctl-name">mouth grow</div><div class="ctl-bar" data-rcfg="mouthGrow" data-min="0" data-max="1.5" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="mouthGrow">0.00</div></div>
-      <div class="ctl"><div class="ctl-name">upper jaw fwd</div><div class="ctl-bar" data-rcfg="upperJawProtrude" data-min="0" data-max="3" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="upperJawProtrude">0.00</div></div>
-      <div class="ctl"><div class="ctl-name">lower jaw fwd</div><div class="ctl-bar" data-rcfg="lowerJawProtrude" data-min="0" data-max="3" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="lowerJawProtrude">0.00</div></div>
-
-      <div class="label" style="font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:var(--dim);margin-top:14px;margin-bottom:6px;">overlay features</div>
-      <div class="toggle-row"><span>show mouth</span><div class="toggle on" data-toggle="minimalMouth"></div></div>
-      <div class="toggle-row"><span>show eyes</span><div class="toggle on" data-toggle="minimalEyes"></div></div>
-      <div class="toggle-row"><span>show nose</span><div class="toggle on" data-toggle="minimalNose"></div></div>
-      <div class="toggle-row"><span>show brows</span><div class="toggle on" data-toggle="minimalBrows"></div></div>
-      <div class="ctl"><div class="ctl-name">mouth ━</div><div class="ctl-bar" data-rcfg="mouthLineThickness" data-min="0.2" data-max="4" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="mouthLineThickness">1.00</div></div>
-      <div class="ctl"><div class="ctl-name">eyes ━</div><div class="ctl-bar" data-rcfg="eyeLineThickness"   data-min="0.2" data-max="4" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="eyeLineThickness">1.00</div></div>
-      <div class="ctl"><div class="ctl-name">nose ━</div><div class="ctl-bar" data-rcfg="noseLineThickness"  data-min="0.2" data-max="4" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="noseLineThickness">1.00</div></div>
-      <div class="ctl"><div class="ctl-name">brows ━</div><div class="ctl-bar" data-rcfg="browLineThickness" data-min="0.2" data-max="4" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="browLineThickness">1.00</div></div>
-
-      <div class="label" style="font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:var(--dim);margin-top:14px;margin-bottom:6px;">colors</div>
+    <!-- ─── COLOURS ──────────────────────────────────────────── -->
+    <div class="panel">
+      <h3>colours <span class="num">style</span></h3>
       <div class="color-row"><div class="ctl-name">base</div><input type="color" id="color-base" value="#ffffff"><div class="ctl-val" id="color-base-val">FFF</div></div>
       <div class="color-row"><div class="ctl-name">depth fade</div><input type="color" id="color-fade" value="#000000"><div class="ctl-val" id="color-fade-val">000</div></div>
       <div class="ctl"><div class="ctl-name">fade ░░</div><div class="ctl-bar" data-rcfg="depthFade" data-min="0" data-max="1" data-step="0.02"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="depthFade">0.00</div></div>
@@ -369,7 +357,13 @@
       <div class="color-row"><div class="ctl-name">brow</div><input type="color" id="color-brow"  value="#ffffff"><div class="ctl-val" id="color-brow-val">FFF</div></div>
       <div class="color-row"><div class="ctl-name">pupil</div><input type="color" id="color-pupil" value="#ffffff"><div class="ctl-val" id="color-pupil-val">FFF</div></div>
       <div class="color-row"><div class="ctl-name">iris</div><input type="color" id="color-iris" value="#000000"><div class="ctl-val" id="color-iris-val">000</div></div>
-      <div class="ctl"><div class="ctl-name">iris ⊙</div><div class="ctl-bar" data-rcfg="irisSize" data-min="1" data-max="4" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="irisSize">1.60</div></div>
+      <div class="ctl"><div class="ctl-name">iris size</div><div class="ctl-bar" data-rcfg="irisSize" data-min="1" data-max="4" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="irisSize">1.60</div></div>
+    </div>
+
+    <!-- ─── MOOD ─────────────────────────────────────────────── -->
+    <div class="panel">
+      <h3>mood <span class="num">crossfade</span></h3>
+      <div class="ctl"><div class="ctl-name">mood time</div><div class="ctl-bar" data-rcfg="moodTransitionTime" data-min="0.05" data-max="5.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="moodTransitionTime">0.60</div></div>
     </div>
 
     <div class="panel">
@@ -643,6 +637,7 @@ const renderConfig = {
   // v006:
   mouthHole: true,     // cut a real puncture at the mouth (for lip-sync visibility)
   mouthHoleSize: 1.0,  // multiplier on mouth puncture ellipse radii [0.4, 2.0]
+  eyeHoleSize: 1.0,    // v1.1: multiplier on eye puncture ellipse radii [0.4, 2.0]
   eyeHoles: false,     // cut eye-socket punctures (optional)
   eyeDepth: 1.0,       // multiplier on warpToFace eye recess [0, 2.5]
   // v007:
@@ -951,8 +946,11 @@ function rebuildMesh() {
   const cutMouth = renderConfig.mouthHole;
 
   // eye sockets puncture (optional)
-  const eyeRU = 0.085, eyeRV = 0.045;
-  const eyeLU = 0.30, eyeLV = 0.40;
+  // v1.1: bumped base ellipse to 0.105 × 0.075 + eyeHoleSize multiplier so
+  // toggling "eye holes" actually produces a visible cut at typical mesh
+  // densities (matches the lib).
+  const eyeRU  = 0.105 * renderConfig.eyeHoleSize, eyeRV  = 0.075 * renderConfig.eyeHoleSize;
+  const eyeLU  = 0.30, eyeLV  = 0.40;
   const eyeRU2 = 0.70, eyeRV2 = 0.40;
   const cutEyes = renderConfig.eyeHoles;
 
@@ -2533,9 +2531,10 @@ function setRcfgVal(key, val) {
   const max = parseFloat(def.dataset.max);
   const step = parseFloat(def.dataset.step) || 0.01;
   let v = Math.max(min, Math.min(max, val));
-  v = Math.round(v / step) * step;
-  // for integer-step (cols/rows), keep odd if step is 2
-  if (step === 2) v = Math.round(v); if (v % 2 === 0 && step === 2) v += 1;
+  // snap to step relative to min — fixes odd-only sliders (cols/rows, step=2,
+  // min=5/7) where previously `Math.round(9/2)*2 = 10 → +1 = 11`, shifting
+  // every saved odd value up by 2 on reload.
+  v = min + Math.round((v - min) / step) * step;
   renderConfig[key] = v;
   // update fill bar
   const fill = def.querySelector('.fill');
@@ -2544,7 +2543,8 @@ function setRcfgVal(key, val) {
   const lbl = document.querySelector(`[data-rcfg-val="${key}"]`);
   if (lbl) lbl.textContent = (step >= 1) ? String(Math.round(v)) : v.toFixed(2);
   // side-effects
-  if (key === 'meshCols' || key === 'meshRows' || key === 'eyeDepth' || key === 'mouthHoleSize') rebuildMesh();
+  if (key === 'meshCols' || key === 'meshRows' || key === 'eyeDepth' ||
+      key === 'mouthHoleSize' || key === 'eyeHoleSize') rebuildMesh();
   if (key === 'lineThickness' || key === 'mouthLineThickness' || key === 'eyeLineThickness' ||
       key === 'noseLineThickness' || key === 'browLineThickness') {
     rebuildMinimalLines();
@@ -2853,6 +2853,18 @@ function applyPreset(p) {
        'mouthLineThickness' in p.renderConfig || 'eyeLineThickness' in p.renderConfig ||
        'noseLineThickness'  in p.renderConfig || 'browLineThickness' in p.renderConfig)) {
     rebuildMinimalLines();
+  }
+  // v1.1 fix: boolean fields (fragment / mouthHole / eyeHoles / pupils) are
+  // assigned via direct property write inside the iteration loop, which does
+  // NOT trigger the corresponding rebuild. The mesh therefore reflects the
+  // PREVIOUS state of those flags. Force a full geometric rebuild now to
+  // sync everything with the loaded config. Cheap (single-shot) and ensures
+  // a preset roundtrip is faithful.
+  if (p.renderConfig) {
+    if (typeof rebuildMesh === 'function') rebuildMesh();
+    if (typeof rebuildPupils === 'function') rebuildPupils();
+    if (typeof rebuildMinimalLines === 'function') rebuildMinimalLines();
+    if (typeof applyMinimalSubVisibility === 'function') applyMinimalSubVisibility();
   }
   // channel gains (knobs)
   if (p.channelGainSliders) {

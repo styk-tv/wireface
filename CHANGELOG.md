@@ -65,6 +65,42 @@ minimal-line controls**. Not on npm yet.
 - Editor `applyPreset` previously updated `renderConfig.glow` and the
   toggle UI class but never re-applied `glow.intensity`. Now syncs glow +
   rebuilds pupils on preset load.
+- **Editor `setRcfgVal` rounding bug** for `step=2` odd-only sliders
+  (`meshCols`, `meshRows`): old `Math.round(v/step)*step` shifted every
+  saved odd value up by 2 on reload (`9 → 11`, `11 → 13`). User's preset
+  with `meshCols=9, meshRows=11` was reloading as `11/13`, distorting the
+  face geometry. Fixed by snapping relative to `min`:
+  `min + Math.round((v-min)/step)*step`.
+- **Editor `applyPreset` rebuild ordering**: boolean fields (`fragment`,
+  `mouthHole`, `eyeHoles`, `pupils`) were assigned via direct property
+  write inside the iteration loop, which doesn't trigger their
+  corresponding rebuild. The mesh therefore reflected the *previous*
+  state of those flags. Now `applyPreset` ends with a coordinated
+  `rebuildMesh + rebuildPupils + rebuildMinimalLines + applyMinimalSubVisibility`
+  so a preset roundtrip is faithful.
+
+### Added (continued)
+- **Editor: `eyeHoleSize` slider** in the EYES panel (was missing from the
+  editor UI even though the lib supported it since v1.0.1). Editor's
+  rebuildMesh now applies `eyeHoleSize` multiplier to the eye-puncture
+  ellipse, matching the lib's behavior. Default `1.0`.
+
+### Changed (continued)
+- **Editor UI completely reorganised** per
+  [`SPEC.WIREFACE.GRAMMAR.v1.0` §5](SPEC.WIREFACE.GRAMMAR.v1.0.md#5-editor-ui-organisation-target).
+  The single oversize "render" panel was split into eight focused panels:
+  **MESH · MOUTH · EYES · JAW · OVERLAY · STYLE · COLOURS · MOOD**. Each
+  panel groups a single concern. Per-feature overlay controls
+  (visibility toggles + thickness sliders) are now interleaved per
+  feature for easier scanning. The CHANNELS panel on the left and the
+  AUDIO / MOODS / VIEW / SESSION panels are unchanged.
+
+### Documentation
+- **`SPEC.WIREFACE.GRAMMAR.v1.0.md`** added — authoritative grammar of
+  the runtime: 28 channels, ~50 renderConfig fields, all element types,
+  preset format, channel→element drive map, config→pass map, UI
+  organisation, invariants, and future-grammar notes. Use this as the
+  single source of truth for naming and shape.
 
 ---
 
