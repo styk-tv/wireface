@@ -8,10 +8,8 @@
   "jsdelivr": "dist/wireface.min.js",
   "files": [
     "wireface.js",
-    "wireface-demo.html",
-    "WireFace.v1.0.png",
-    "wireface_asset__post__th5rha.json",
-    "wireface_asset__post__ydr7de.json",
+    "examples/",
+    "docs/",
     "dist/",
     "LICENSE",
     "README.md"

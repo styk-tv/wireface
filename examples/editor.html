@@ -1,0 +1,3023 @@
+<!DOCTYPE html>
+<!--
+  wireface — standalone editor (v011 — color palette · depth fade · jaw extend)
+  Repository:  https://github.com/styk-tv/wireface
+  npm:         https://www.npmjs.com/package/wireface
+  Copyright (c) 2026 Peter Styk
+  Released under the MIT License — see LICENSE in the repository root.
+
+  This editor is a self-contained authoring surface — it ships its own copy of
+  the rendering pipeline so it can write/edit/save preset JSON without the
+  library being embedded. The runtime in `wireface.js` consumes the JSON it
+  produces. A future revision will refactor the editor to consume the library
+  directly via createWireface().setRenderConfig().
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WIREFACE v011 — color palette · depth fade · jaw extend</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg: #000000;
+    --fg: #f4f4f0;
+    --dim: #6a6a64;
+    --accent: #f5e663;
+    --grid: #1a1a18;
+    --panel: rgba(8, 8, 8, 0.78);
+    --border: rgba(244, 244, 240, 0.12);
+    --border-bright: rgba(244, 244, 240, 0.35);
+    --mono: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg); font-family: var(--mono); font-weight: 300; -webkit-font-smoothing: antialiased; }
+
+  #renderCanvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; touch-action: none; outline: none; cursor: grab; }
+  #renderCanvas:active { cursor: grabbing; }
+
+  /* subtle scanlines + vignette */
+  .veil { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+  .veil.scan { background: repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 3px); mix-blend-mode: overlay; }
+  .veil.vig { background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.55) 100%); }
+
+  /* ─── overlay grid ─── */
+  .overlay { position: fixed; inset: 0; pointer-events: none; z-index: 10; padding: 18px; display: grid; grid-template-columns: 320px 1fr 360px; grid-template-rows: auto 1fr auto; gap: 14px; }
+  .overlay > * { pointer-events: auto; }
+
+  /* ─── header ─── */
+  header { grid-column: 1 / -1; display: flex; align-items: baseline; justify-content: space-between; gap: 24px; padding: 4px 6px; }
+  header .brand { display: flex; align-items: baseline; gap: 14px; }
+  header .mark { font-family: var(--mono); font-weight: 600; letter-spacing: 0.18em; font-size: 13px; color: var(--fg); }
+  header .mark::before { content: '◣'; color: var(--accent); margin-right: 8px; }
+  header .sub { font-size: 10px; color: var(--dim); letter-spacing: 0.12em; text-transform: uppercase; }
+  header .sub::before { content: '/ '; color: var(--accent); }
+  header .meta { font-size: 10px; color: var(--dim); letter-spacing: 0.16em; text-transform: uppercase; display: flex; gap: 18px; }
+  header .meta b { color: var(--fg); font-weight: 400; }
+
+  /* ─── panels ─── */
+  .panel { background: var(--panel); border: 1px solid var(--border); backdrop-filter: blur(8px); padding: 14px 14px 12px; font-size: 11px; }
+  .panel h3 { font-size: 10px; font-weight: 500; letter-spacing: 0.22em; text-transform: uppercase; color: var(--dim); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .panel h3 .num { font-family: var(--mono); color: var(--accent); font-size: 9px; letter-spacing: 0.05em; }
+
+  /* left column */
+  #left { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
+  #right { grid-column: 3; grid-row: 2; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; overflow-x: hidden; padding-right: 4px; }
+  #bottom { grid-column: 1 / -1; grid-row: 3; }
+
+  /* channel sliders */
+  .chan-list { overflow-y: auto; max-height: 100%; padding-right: 4px; }
+  .chan-list::-webkit-scrollbar { width: 4px; }
+  .chan-list::-webkit-scrollbar-track { background: transparent; }
+  .chan-list::-webkit-scrollbar-thumb { background: var(--border-bright); }
+
+  .chan-group { margin-bottom: 14px; }
+  .chan-group .label { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; padding-left: 2px; }
+  .chan-group .label::after { content: ''; display: inline-block; width: 6px; height: 1px; background: var(--accent); margin-left: 8px; vertical-align: middle; }
+
+  .chan { display: grid; grid-template-columns: 88px 1fr 36px 18px; gap: 8px; align-items: center; padding: 3px 0; font-size: 10px; }
+  .chan-name { font-weight: 400; color: var(--fg); letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.85; }
+  .chan-bar { position: relative; height: 14px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); cursor: pointer; }
+  .chan-bar .fill { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, var(--fg) 0%, var(--accent) 100%); transition: width 0.05s linear; }
+  .chan-bar .live { position: absolute; right: 2px; top: 1px; bottom: 1px; width: 2px; background: var(--accent); opacity: 0; }
+  .chan-bar.active .live { opacity: 1; }
+  .chan-val { font-size: 10px; color: var(--dim); text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* per-channel gain knob — bipolar dial that scales how much that channel
+     contributes to mesh deformation. marker at top (0deg) = 1x (default),
+     full counter-clockwise (-135deg) = mute, full clockwise (+135deg) ≈ 4x. */
+  .knob { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--border-bright); position: relative; cursor: ns-resize; background: rgba(255,255,255,0.02); flex-shrink: 0; touch-action: none; }
+  .knob:hover { border-color: var(--fg); }
+  .knob.gained { border-color: var(--accent); }
+  .knob-marker { position: absolute; left: calc(50% - 0.75px); top: 1px; width: 1.5px; height: 6px; background: var(--fg); transform-origin: 50% 7px; transform: rotate(0deg); pointer-events: none; }
+  .knob.gained .knob-marker { background: var(--accent); }
+
+  /* presets list inside SESSION panel */
+  .preset-list { display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto; padding-right: 2px; margin-top: 4px; }
+  .preset-list:empty::before { content: 'no presets yet — hit save'; font-size: 9px; color: var(--dim); padding: 6px 4px; letter-spacing: 0.08em; }
+  .preset-item { display: grid; grid-template-columns: 1fr 18px 18px; gap: 4px; align-items: center; padding: 5px 6px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); font-size: 10px; cursor: pointer; transition: background 0.1s; }
+  .preset-item:hover { background: rgba(255,235,59,0.08); border-color: var(--accent); }
+  .preset-item .pname { color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.04em; }
+  .preset-item .picon { color: var(--dim); text-align: center; cursor: pointer; font-size: 11px; line-height: 1; }
+  .preset-item .picon:hover { color: var(--accent); }
+  .preset-item .picon.del:hover { color: #ff5050; }
+
+  /* color picker rows — native input[type=color] in our chrome */
+  .color-row { display: grid; grid-template-columns: 92px 1fr 36px; gap: 10px; align-items: center; padding: 3px 0; font-size: 10px; }
+  .color-row .ctl-name { font-weight: 400; color: var(--fg); letter-spacing: 0.04em; opacity: 0.85; }
+  .color-row input[type=color] { width: 100%; height: 18px; border: 1px solid var(--border-bright); background: transparent; cursor: pointer; padding: 1px; }
+  .color-row input[type=color]::-webkit-color-swatch-wrapper { padding: 0; }
+  .color-row input[type=color]::-webkit-color-swatch { border: none; }
+  .color-row .ctl-val { font-size: 10px; color: var(--dim); text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* buttons */
+  button, .btn { font-family: var(--mono); font-size: 10px; font-weight: 400; letter-spacing: 0.16em; text-transform: uppercase; background: transparent; color: var(--fg); border: 1px solid var(--border-bright); padding: 9px 12px; cursor: pointer; transition: all 0.12s; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+  button:hover, .btn:hover { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  button:disabled { opacity: 0.3; cursor: not-allowed; }
+  button:disabled:hover { background: transparent; color: var(--fg); border-color: var(--border-bright); }
+  button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  button.primary:hover { background: var(--fg); border-color: var(--fg); }
+  button.recording { border-color: #ff3838; color: #ff3838; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .btn-row.three { grid-template-columns: repeat(3, 1fr); }
+  .btn-row.full { grid-template-columns: 1fr; }
+
+  /* file drop */
+  .file-input { position: relative; }
+  .file-input input { position: absolute; opacity: 0; pointer-events: none; }
+  .file-name { font-size: 10px; color: var(--dim); margin-top: 6px; padding: 4px 6px; border-left: 2px solid var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* mood pills */
+  .mood-row { display: flex; flex-wrap: wrap; gap: 4px; }
+  .mood-row button { padding: 6px 9px; font-size: 9px; flex: 1; min-width: 0; }
+  .mood-row button.on { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
+  /* render config sliders */
+  .ctl { display: grid; grid-template-columns: 78px 1fr 32px; gap: 8px; align-items: center; padding: 4px 0; font-size: 10px; }
+  .ctl-name { color: var(--fg); opacity: 0.78; letter-spacing: 0.04em; white-space: nowrap; }
+  .ctl-bar { position: relative; height: 14px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); cursor: pointer; }
+  .ctl-bar .fill { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, rgba(245,230,99,0.25), rgba(245,230,99,0.6)); }
+  .ctl-val { font-size: 10px; color: var(--dim); text-align: right; font-variant-numeric: tabular-nums; }
+  .seg-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 6px; }
+  .seg-row button { padding: 6px 4px; font-size: 9px; }
+  .seg-row button.on { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; font-size: 10px; color: var(--fg); opacity: 0.85; }
+  .toggle { width: 28px; height: 14px; background: rgba(255,255,255,0.06); border: 1px solid var(--border); position: relative; cursor: pointer; }
+  .toggle::after { content: ''; position: absolute; top: 1px; left: 1px; width: 10px; height: 10px; background: var(--dim); transition: all 0.15s; }
+  .toggle.on { background: rgba(245,230,99,0.2); border-color: var(--accent); }
+  .toggle.on::after { left: 15px; background: var(--accent); }
+
+  /* timeline */
+  #bottom { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; padding: 12px 16px; background: var(--panel); border: 1px solid var(--border); backdrop-filter: blur(8px); }
+  .transport { display: flex; gap: 6px; align-items: center; }
+  .transport button { padding: 8px 10px; min-width: 38px; font-size: 11px; }
+  #timeline { position: relative; height: 28px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); cursor: pointer; }
+  #timeline .progress { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, rgba(245,230,99,0.18), rgba(245,230,99,0.4)); width: 0%; }
+  #timeline .head { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--accent); box-shadow: 0 0 6px var(--accent); transform: translateX(-50%); pointer-events: none; }
+  #timeline .ticks { position: absolute; inset: 0; background-image: repeating-linear-gradient(90deg, transparent 0, transparent 49px, var(--border) 49px, var(--border) 50px); }
+  .time-readout { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--fg); letter-spacing: 0.08em; min-width: 110px; text-align: right; }
+  .time-readout .dim { color: var(--dim); }
+
+  /* status indicator */
+  .status { display: flex; align-items: center; gap: 6px; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
+  .status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); }
+  .status.live .dot { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse 1.2s infinite; }
+  .status.rec .dot { background: #ff3838; box-shadow: 0 0 8px #ff3838; animation: pulse 1.2s infinite; }
+
+  /* corner crosshairs */
+  .crosshair { position: fixed; width: 14px; height: 14px; border: 1px solid var(--border-bright); pointer-events: none; z-index: 6; }
+  .crosshair.tl { top: 16px; left: 16px; border-right: 0; border-bottom: 0; }
+  .crosshair.tr { top: 16px; right: 16px; border-left: 0; border-bottom: 0; }
+  .crosshair.bl { bottom: 16px; left: 16px; border-right: 0; border-top: 0; }
+  .crosshair.br { bottom: 16px; right: 16px; border-left: 0; border-top: 0; }
+
+  /* coord readout */
+  .coord { position: fixed; bottom: 100px; right: 24px; font-size: 9px; color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase; pointer-events: none; z-index: 6; text-align: right; line-height: 1.6; }
+  .coord b { color: var(--fg); font-weight: 400; }
+
+  /* slim layout when narrow */
+  @media (max-width: 1100px) {
+    .overlay { grid-template-columns: 280px 1fr; }
+    #right { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="renderCanvas"></canvas>
+
+<div class="veil scan"></div>
+<div class="veil vig"></div>
+
+<div class="crosshair tl"></div>
+<div class="crosshair tr"></div>
+<div class="crosshair bl"></div>
+<div class="crosshair br"></div>
+
+<div class="coord">
+  <div>FRAME <b id="coord-frame">0000</b></div>
+  <div>FPS <b id="coord-fps">60</b></div>
+  <div>CH <b id="coord-ch">30</b> ACTIVE <b id="coord-active">0</b></div>
+  <div>TRI <b id="coord-tris">000</b> VERT <b id="coord-verts">000</b></div>
+  <div>ANCHOR <b id="coord-anchor">00/00</b></div>
+</div>
+
+<div class="overlay">
+
+  <header>
+    <div class="brand">
+      <div class="mark">WIREFACE</div>
+      <div class="sub">v011 · palette · jaw extend · iris</div>
+    </div>
+    <div class="meta">
+      <span>BLEND <b>Oculus·15</b></span>
+      <span>SHAPE <b>ARKit·15</b></span>
+      <span class="status" id="status"><span class="dot"></span><span id="status-text">idle</span></span>
+    </div>
+  </header>
+
+  <!-- LEFT: channels -->
+  <div id="left">
+    <div class="panel" style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+      <h3>channels <span class="num" id="ch-count">30</span></h3>
+      <div class="chan-list" id="chan-list"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: controls -->
+  <div id="right">
+    <div class="panel">
+      <h3>audio source <span class="num">01</span></h3>
+      <div class="btn-row full" style="margin-bottom: 6px;">
+        <label class="btn file-input">
+          load .mp3 / .wav
+          <input type="file" id="audio-file" accept="audio/*">
+        </label>
+      </div>
+      <div class="file-name" id="audio-name">no file loaded — using built-in test tone</div>
+      <div class="toggle-row">
+        <span>loop audio</span>
+        <div class="toggle on" data-toggle="loopAudio"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>moods <span class="num">07</span></h3>
+      <div class="mood-row">
+        <button data-mood="neutral" class="on">neutral</button>
+        <button data-mood="happy">happy</button>
+        <button data-mood="sad">sad</button>
+        <button data-mood="angry">angry</button>
+        <button data-mood="fear">fear</button>
+        <button data-mood="surprise">surpr</button>
+        <button data-mood="sleep">sleep</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>view <span class="num">04</span></h3>
+      <div class="btn-row">
+        <button data-view="front">front</button>
+        <button data-view="three-q">3/4</button>
+        <button data-view="profile">profile</button>
+        <button data-view="orbit">orbit</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>render <span class="num">mesh</span></h3>
+
+      <div class="ctl"><div class="ctl-name">cols</div><div class="ctl-bar" data-rcfg="meshCols"  data-min="5" data-max="21" data-step="2"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="meshCols">7</div></div>
+      <div class="ctl"><div class="ctl-name">rows</div><div class="ctl-bar" data-rcfg="meshRows"  data-min="7" data-max="25" data-step="2"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="meshRows">9</div></div>
+      <div class="ctl"><div class="ctl-name">nose</div><div class="ctl-bar" data-rcfg="scaleNose" data-min="0.4" data-max="2.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="scaleNose">1.00</div></div>
+      <div class="ctl"><div class="ctl-name">eyes</div><div class="ctl-bar" data-rcfg="scaleEyes" data-min="0.4" data-max="2.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="scaleEyes">1.00</div></div>
+      <div class="ctl"><div class="ctl-name">mouth</div><div class="ctl-bar" data-rcfg="scaleMouth" data-min="0.4" data-max="2.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="scaleMouth">1.00</div></div>
+      <div class="ctl"><div class="ctl-name">react</div><div class="ctl-bar" data-rcfg="reactivity" data-min="0" data-max="0.6" data-step="0.02"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="reactivity">0.25</div></div>
+      <div class="ctl"><div class="ctl-name">spread</div><div class="ctl-bar" data-rcfg="spread" data-min="0.5" data-max="2.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="spread">1.00</div></div>
+      <div class="ctl"><div class="ctl-name">mouth ⊘</div><div class="ctl-bar" data-rcfg="mouthHoleSize" data-min="0.4" data-max="2.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="mouthHoleSize">1.00</div></div>
+      <div class="ctl"><div class="ctl-name">eye depth</div><div class="ctl-bar" data-rcfg="eyeDepth" data-min="0" data-max="5" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="eyeDepth">1.00</div></div>
+      <div class="ctl"><div class="ctl-name">line ━</div><div class="ctl-bar" data-rcfg="lineThickness" data-min="0.4" data-max="3.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="lineThickness">1.00</div></div>
+      <div class="ctl"><div class="ctl-name">lip y-amp</div><div class="ctl-bar" data-rcfg="lipVertAmp" data-min="0.5" data-max="4.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="lipVertAmp">1.60</div></div>
+      <div class="ctl"><div class="ctl-name">lip close</div><div class="ctl-bar" data-rcfg="lipPressForce" data-min="0" data-max="3" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="lipPressForce">1.00</div></div>
+
+      <div class="seg-row">
+        <button data-mode="wire" class="on">wire</button>
+        <button data-mode="edges">edges</button>
+        <button data-mode="shaded">shaded</button>
+      </div>
+
+      <div class="toggle-row">
+        <span>mouth puncture</span>
+        <div class="toggle on" data-toggle="mouthHole"></div>
+      </div>
+      <div class="toggle-row">
+        <span>mouth anchor</span>
+        <div class="toggle on" data-toggle="mouthAnchor"></div>
+      </div>
+      <div class="toggle-row">
+        <span>eye puncture</span>
+        <div class="toggle" data-toggle="eyeHoles"></div>
+      </div>
+      <div class="toggle-row">
+        <span>eye anchor</span>
+        <div class="toggle" data-toggle="eyeAnchor"></div>
+      </div>
+      <div class="toggle-row">
+        <span>overlay → mesh</span>
+        <div class="toggle on" data-toggle="overlayTracksMesh"></div>
+      </div>
+      <div class="toggle-row">
+        <span>flip face 180°</span>
+        <div class="toggle on" data-toggle="flipFace"></div>
+      </div>
+      <div class="toggle-row">
+        <span>show mesh</span>
+        <div class="toggle on" data-toggle="meshVisible"></div>
+      </div>
+      <div class="toggle-row">
+        <span>fragment (oval clip)</span>
+        <div class="toggle" data-toggle="fragment"></div>
+      </div>
+      <div class="toggle-row">
+        <span>minimal lines</span>
+        <div class="toggle on" data-toggle="minimal"></div>
+      </div>
+      <div class="toggle-row">
+        <span>glow / highlights</span>
+        <div class="toggle" data-toggle="glow"></div>
+      </div>
+      <div class="toggle-row">
+        <span>pupils</span>
+        <div class="toggle" data-toggle="pupils"></div>
+      </div>
+
+      <div class="label" style="font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:var(--dim);margin-top:14px;margin-bottom:6px;">moods</div>
+      <div class="ctl"><div class="ctl-name">mood time</div><div class="ctl-bar" data-rcfg="moodTransitionTime" data-min="0.05" data-max="5.0" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="moodTransitionTime">0.60</div></div>
+
+      <div class="label" style="font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:var(--dim);margin-top:14px;margin-bottom:6px;">jaw + growth</div>
+      <div class="ctl"><div class="ctl-name">jaw extend</div><div class="ctl-bar" data-rcfg="jawExtend" data-min="0" data-max="3" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="jawExtend">0.00</div></div>
+      <div class="ctl"><div class="ctl-name">mouth grow</div><div class="ctl-bar" data-rcfg="mouthGrow" data-min="0" data-max="1.5" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="mouthGrow">0.00</div></div>
+
+      <div class="label" style="font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:var(--dim);margin-top:14px;margin-bottom:6px;">colors</div>
+      <div class="color-row"><div class="ctl-name">base</div><input type="color" id="color-base" value="#ffffff"><div class="ctl-val" id="color-base-val">FFF</div></div>
+      <div class="color-row"><div class="ctl-name">depth fade</div><input type="color" id="color-fade" value="#000000"><div class="ctl-val" id="color-fade-val">000</div></div>
+      <div class="ctl"><div class="ctl-name">fade ░░</div><div class="ctl-bar" data-rcfg="depthFade" data-min="0" data-max="1" data-step="0.02"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="depthFade">0.00</div></div>
+      <div class="color-row"><div class="ctl-name">line</div><input type="color" id="color-line" value="#ffffff"><div class="ctl-val" id="color-line-val">FFF</div></div>
+      <div class="color-row"><div class="ctl-name">brow</div><input type="color" id="color-brow" value="#ffffff"><div class="ctl-val" id="color-brow-val">FFF</div></div>
+      <div class="color-row"><div class="ctl-name">pupil</div><input type="color" id="color-pupil" value="#ffffff"><div class="ctl-val" id="color-pupil-val">FFF</div></div>
+      <div class="color-row"><div class="ctl-name">iris</div><input type="color" id="color-iris" value="#000000"><div class="ctl-val" id="color-iris-val">000</div></div>
+      <div class="ctl"><div class="ctl-name">iris ⊙</div><div class="ctl-bar" data-rcfg="irisSize" data-min="1" data-max="4" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="irisSize">1.60</div></div>
+    </div>
+
+    <div class="panel">
+      <h3>session <span class="num">i/o</span></h3>
+      <div class="btn-row" style="margin-bottom: 6px;">
+        <button id="btn-record">● record</button>
+        <button id="btn-export" disabled>↓ export json</button>
+      </div>
+      <div class="btn-row">
+        <label class="btn file-input">
+          ↑ import json
+          <input type="file" id="json-file" accept="application/json,.json">
+        </label>
+        <button id="btn-clear">clear track</button>
+      </div>
+      <div class="file-name" id="track-info">no track recorded</div>
+
+      <div class="label" style="font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:var(--dim);margin-top:14px;margin-bottom:4px;">presets</div>
+      <div class="btn-row" style="margin-bottom: 4px;">
+        <button id="btn-preset-save">+ save preset</button>
+        <button id="btn-preset-export-all" disabled>↓ export all</button>
+      </div>
+      <div class="btn-row full" style="margin-bottom: 4px;">
+        <label class="btn file-input">
+          ↑ import preset(s)
+          <input type="file" id="preset-file" accept="application/json,.json">
+        </label>
+      </div>
+      <div class="preset-list" id="preset-list"></div>
+    </div>
+  </div>
+
+  <!-- BOTTOM: transport -->
+  <div id="bottom">
+    <div class="transport">
+      <button id="btn-play">▶ play</button>
+      <button id="btn-stop">■ stop</button>
+    </div>
+    <div id="timeline">
+      <div class="ticks"></div>
+      <div class="progress" id="progress"></div>
+      <div class="head" id="playhead" style="left: 0%"></div>
+    </div>
+    <div class="time-readout"><span id="t-cur">00:00.00</span><span class="dim"> / <span id="t-tot">00:00.00</span></span></div>
+  </div>
+
+</div>
+
+<script>
+/* Try CDNs in sequence so a temporary outage doesn't kill the app.
+   Pinned to babylonjs@9 — bumped from 8.20 alongside the v1.0 release of
+   the wireface library (which itself targets Babylon v9 features incl. GlowLayer). */
+(function loadBabylon() {
+  const sources = [
+    'https://cdn.jsdelivr.net/npm/babylonjs@9/babylon.js',
+    'https://unpkg.com/babylonjs@9/babylon.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/babylonjs/9.5.0/babylon.min.js',
+  ];
+  let i = 0;
+  function tryNext() {
+    if (i >= sources.length) {
+      document.body.insertAdjacentHTML('afterbegin',
+        '<div style="position:fixed;inset:0;display:grid;place-items:center;background:#000;color:#f4f4f0;font-family:monospace;z-index:99999;padding:24px;text-align:center;">' +
+        '<div><div style="color:#f5e663;letter-spacing:.2em;margin-bottom:12px">⚠ BABYLON.JS FAILED TO LOAD</div>' +
+        '<div style="font-size:11px;color:#888">All CDNs unreachable. Check your network/firewall.</div></div></div>');
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = sources[i++];
+    s.onload = () => {
+      if (typeof window.BABYLON !== 'undefined' && window.BABYLON.Engine) {
+        try {
+          bootWireface();
+        } catch (err) {
+          console.error('WIREFACE boot error:', err);
+          console.error(err.stack);
+          document.body.insertAdjacentHTML('afterbegin',
+            '<div style="position:fixed;top:0;left:0;right:0;background:#300;color:#faa;font-family:monospace;font-size:11px;padding:10px 14px;z-index:99999;border-bottom:1px solid #600;">' +
+            '<b>BOOT ERROR:</b> ' + (err.message || err) + ' &nbsp;·&nbsp; <span style="color:#888">see console for stack</span></div>');
+        }
+      } else {
+        tryNext();
+      }
+    };
+    s.onerror = tryNext;
+    document.head.appendChild(s);
+  }
+  tryNext();
+})();
+
+function bootWireface() {
+/* ═══════════════════════════════════════════════════════════════════════════
+   WIREFACE — viseme channel sequencer
+   ─────────────────────────────────────────────────────────────────────────
+   30 named channels, 0-1 weights, sampled at 60Hz. Drives parametric
+   wireframe face geometry. Live audio FFT estimates visemes in real time.
+   Recordings export as compact JSON event tracks (MIDI-style).
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const BABYLON = window.BABYLON;
+
+/* ─── 1. CHANNEL DEFINITIONS ─────────────────────────────────────────────
+   Each channel is a named 0-1 (or -1..1) float. Grouped by part.
+   These are the "MIDI channels" the user records and exports. */
+
+const CHANNELS = {
+  /* mouth — Oculus visemes (15) */
+  viseme_sil: { group: 'mouth', range: [0,1], def: 1.0 },
+  viseme_PP:  { group: 'mouth', range: [0,1], def: 0 },
+  viseme_FF:  { group: 'mouth', range: [0,1], def: 0 },
+  viseme_TH:  { group: 'mouth', range: [0,1], def: 0 },
+  viseme_DD:  { group: 'mouth', range: [0,1], def: 0 },
+  viseme_kk:  { group: 'mouth', range: [0,1], def: 0 },
+  viseme_CH:  { group: 'mouth', range: [0,1], def: 0 },
+  viseme_SS:  { group: 'mouth', range: [0,1], def: 0 },
+  viseme_nn:  { group: 'mouth', range: [0,1], def: 0 },
+  viseme_RR:  { group: 'mouth', range: [0,1], def: 0 },
+  viseme_aa:  { group: 'mouth', range: [0,1], def: 0 },
+  viseme_E:   { group: 'mouth', range: [0,1], def: 0 },
+  viseme_I:   { group: 'mouth', range: [0,1], def: 0 },
+  viseme_O:   { group: 'mouth', range: [0,1], def: 0 },
+  viseme_U:   { group: 'mouth', range: [0,1], def: 0 },
+
+  /* mouth shape modifiers — ARKit-style */
+  jawOpen:        { group: 'jaw',  range: [0,1],   def: 0 },
+  mouthSmile:     { group: 'jaw',  range: [-1,1],  def: 0 }, // negative = frown
+  mouthPucker:    { group: 'jaw',  range: [0,1],   def: 0 },
+
+  /* eyes */
+  eyeBlinkLeft:   { group: 'eyes', range: [0,1],   def: 0 },
+  eyeBlinkRight:  { group: 'eyes', range: [0,1],   def: 0 },
+  eyeLookH:       { group: 'eyes', range: [-1,1],  def: 0 }, // -1 left, +1 right
+  eyeLookV:       { group: 'eyes', range: [-1,1],  def: 0 }, // -1 down, +1 up
+  eyeSquint:      { group: 'eyes', range: [0,1],   def: 0 },
+
+  /* brows */
+  browInnerUp:    { group: 'brows', range: [0,1],  def: 0 },
+  browOuterUp:    { group: 'brows', range: [-1,1], def: 0 },
+  browDown:       { group: 'brows', range: [0,1],  def: 0 },
+
+  /* nose */
+  noseSneer:      { group: 'nose',  range: [0,1],  def: 0 },
+
+  /* head pose */
+  headRotateX:    { group: 'head',  range: [-1,1], def: 0 },
+  headRotateY:    { group: 'head',  range: [-1,1], def: 0 },
+  headRotateZ:    { group: 'head',  range: [-1,1], def: 0 },
+};
+const CHANNEL_NAMES = Object.keys(CHANNELS);
+
+/* live state — every channel's current value */
+const state = {};
+const stateTarget = {};   // smoothed-toward target
+CHANNEL_NAMES.forEach(n => { state[n] = CHANNELS[n].def; stateTarget[n] = CHANNELS[n].def; });
+
+/* manual overrides (when user drags a slider, lock value) */
+const manualLock = {};
+
+/* ─── 2. VISEME → MOUTH-PARAM PRESETS ────────────────────────────────────
+   Each viseme defines (open, width, round, smile, lipPress, jaw) deltas
+   that get weighted-summed at runtime. Numbers feel-tuned. */
+
+const VISEME_PARAMS = {
+  sil: { open: 0.00, width: 0.00, round: 0.00, smile: 0.00, lipPress: 0.30, jaw: 0.00 },
+  PP:  { open: 0.00, width: 0.00, round: 0.20, smile: 0.00, lipPress: 0.95, jaw: 0.00 },
+  FF:  { open: 0.10, width: 0.05, round: 0.00, smile: 0.05, lipPress: 0.55, jaw: 0.10 },
+  TH:  { open: 0.20, width: 0.15, round: 0.00, smile: 0.00, lipPress: 0.10, jaw: 0.18 },
+  DD:  { open: 0.28, width: 0.25, round: 0.00, smile: 0.05, lipPress: 0.05, jaw: 0.25 },
+  kk:  { open: 0.32, width: 0.20, round: 0.00, smile: 0.00, lipPress: 0.05, jaw: 0.30 },
+  CH:  { open: 0.32, width: 0.00, round: 0.55, smile: 0.00, lipPress: 0.10, jaw: 0.25 },
+  SS:  { open: 0.18, width: 0.45, round: 0.00, smile: 0.20, lipPress: 0.20, jaw: 0.10 },
+  nn:  { open: 0.18, width: 0.18, round: 0.00, smile: 0.00, lipPress: 0.30, jaw: 0.18 },
+  RR:  { open: 0.35, width: 0.00, round: 0.50, smile: 0.00, lipPress: 0.05, jaw: 0.25 },
+  aa:  { open: 0.85, width: 0.45, round: 0.00, smile: 0.00, lipPress: 0.00, jaw: 0.85 },
+  E:   { open: 0.50, width: 0.65, round: 0.00, smile: 0.20, lipPress: 0.00, jaw: 0.45 },
+  I:   { open: 0.28, width: 0.85, round: 0.00, smile: 0.30, lipPress: 0.00, jaw: 0.18 },
+  O:   { open: 0.55, width: 0.00, round: 0.75, smile: 0.00, lipPress: 0.00, jaw: 0.45 },
+  U:   { open: 0.35, width: -0.15, round: 0.95, smile: 0.00, lipPress: 0.05, jaw: 0.25 },
+};
+
+/* compute aggregated mouth params from current viseme weights */
+function computeMouthParams() {
+  // weighted average. Total weight clamps at 1; if visemes don't sum to 1,
+  // remainder goes to 'sil' implicitly (since sil=zeros, this just damps).
+  let totalW = 0;
+  const out = { open: 0, width: 0, round: 0, smile: 0, lipPress: 0, jaw: 0 };
+  for (const v of Object.keys(VISEME_PARAMS)) {
+    const w = state['viseme_' + v] || 0;
+    if (w <= 0) continue;
+    totalW += w;
+    const p = VISEME_PARAMS[v];
+    out.open += p.open * w; out.width += p.width * w; out.round += p.round * w;
+    out.smile += p.smile * w; out.lipPress += p.lipPress * w; out.jaw += p.jaw * w;
+  }
+  // also additively layer ARKit-style modifiers
+  out.smile += state.mouthSmile;          // -1..1 — symmetric add
+  out.round += state.mouthPucker * 0.6;
+  out.open  += state.jawOpen * 0.6;
+  out.jaw   += state.jawOpen * 0.7;
+  // clamp
+  for (const k in out) out[k] = Math.max(-1, Math.min(1.2, out[k]));
+  return out;
+}
+
+/* ─── 3. BABYLON SCENE ──────────────────────────────────────────────────── */
+
+const canvas = document.getElementById('renderCanvas');
+const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true, antialias: true });
+const scene = new BABYLON.Scene(engine);
+scene.clearColor = new BABYLON.Color4(0, 0, 0, 1);
+
+/* camera — orbit around the face */
+const camera = new BABYLON.ArcRotateCamera('cam', -Math.PI/2, Math.PI/2, 4.4, new BABYLON.Vector3(0, 0, 0), scene);
+/* attachControl in sandboxed iframes (e.g. Claude artifacts, restrictive
+   embeds) throws because navigator.getGamepads() is permission-blocked.
+   Stub it for the duration of attachControl so input-manager init can
+   complete and mouse/keyboard still work. */
+{
+  const origGP = navigator.getGamepads ? navigator.getGamepads.bind(navigator) : null;
+  let restored = false;
+  try {
+    Object.defineProperty(navigator, 'getGamepads', { value: () => [], configurable: true });
+  } catch (e) { /* ignore — not all browsers allow override */ }
+  try {
+    camera.attachControl(true);
+  } catch (e) {
+    console.warn('[wireface] camera.attachControl partial:', e.message);
+  }
+  try {
+    if (origGP) Object.defineProperty(navigator, 'getGamepads', { value: origGP, configurable: true });
+    restored = true;
+  } catch (e) {}
+}
+camera.lowerRadiusLimit = 2.5;
+camera.upperRadiusLimit = 8;
+camera.wheelDeltaPercentage = 0.01;
+camera.angularSensibilityX = 1500;
+camera.angularSensibilityY = 1500;
+camera.minZ = 0.1;
+
+/* lights — bright key + rim, white emissive lines do most of the work */
+const hemi = new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0, 1, 0), scene);
+hemi.intensity = 0.4;
+hemi.diffuse = new BABYLON.Color3(0.95, 0.95, 1.0);
+
+const key = new BABYLON.DirectionalLight('key', new BABYLON.Vector3(-0.4, -0.6, -0.7), scene);
+key.intensity = 0.9;
+key.diffuse = new BABYLON.Color3(1, 1, 0.95);
+
+const rim = new BABYLON.PointLight('rim', new BABYLON.Vector3(0, 0.5, 3), scene);
+rim.intensity = 0.6;
+rim.diffuse = new BABYLON.Color3(0.85, 0.9, 1);
+
+/* render configuration — declared early so scene-init can read defaults */
+const renderConfig = {
+  meshCols: 7,         // grid cols (odd → keeps centerline vertices for symmetry)
+  meshRows: 9,         // grid rows
+  scaleNose: 1.0,
+  scaleEyes: 1.0,
+  scaleMouth: 1.0,
+  reactivity: 0.25,    // Laplacian neighbor coupling factor [0,1]
+  spread: 1.0,         // global multiplier on all blendshape radii
+  mode: 'wire',        // 'wire' | 'edges' | 'shaded'
+  pupils: false,
+  meshVisible: true,
+  minimal: true,        // v010: now ON by default — overlay is the "thick line" answer for the WebGL line-width limitation
+  fragment: false,
+  glow: false,
+  flipFace: true,
+  loopAudio: true,
+  // v006:
+  mouthHole: true,     // cut a real puncture at the mouth (for lip-sync visibility)
+  mouthHoleSize: 1.0,  // multiplier on mouth puncture ellipse radii [0.4, 2.0]
+  eyeHoles: false,     // cut eye-socket punctures (optional)
+  eyeDepth: 1.0,       // multiplier on warpToFace eye recess [0, 2.5]
+  // v007:
+  mouthAnchor: true,   // drive mouth-ring mesh vertices directly from lip-curve formula
+  eyeAnchor: false,    // drive eye-ring mesh vertices from lid-arc formula
+  lineThickness: 1.0,  // multiplier on minimal-line tube radius [0.4, 3.0]
+  // v008:
+  lipVertAmp: 1.6,     // amplify vertical lip motion (closure + opening) [0.5, 4.0]
+  lipPressForce: 1.0,  // extra closing pressure for PP/FF/MM phonetics [0, 3]
+  overlayTracksMesh: true, // brow/nose/eye overlay positions follow mesh deformation
+  // v010:
+  moodTransitionTime: 0.6,  // seconds for mood blend transitions [0.05, 5.0]
+  lineColor: '#ffffff',     // minimal-line overlay tube color (mouth/eye/brow/nose)
+  pupilColor: '#ffffff',    // pupil sphere color
+  // v011:
+  baseColor: '#ffffff',     // mesh wireframe / face emissive base color
+  fadeColor: '#000000',     // back-of-mesh color to fade to (depth gradient)
+  depthFade: 0.0,           // 0 = no fade, 1 = full fade to fadeColor at deepest z [0, 1]
+  irisColor: '#000000',     // iris ring color (visible behind pupil)
+  irisSize: 1.6,            // iris radius multiplier on pupil radius [1, 4]
+  browColor: '#ffffff',     // brow tube color separate from lineColor
+  jawExtend: 0.0,           // z-forward push of lower face when jaw opens [0, 3]
+  mouthGrow: 0.0,           // extra scaling of mouth region as it opens [0, 1.5]
+};
+
+/* per-channel gain knobs — multiplier applied to each channel value when
+   it's read by the displacement code. Default 1.0 = unchanged. Knob slider
+   value k ∈ [-2, +2] maps to gain = 2^k (so k=0 → 1×, k=+1 → 2×, k=-1 → 0.5×). */
+const channelGains = {};      // channel name → multiplier
+const channelGainSliders = {}; // channel name → slider position k (for UI)
+
+/* mood transition state — current displayed weights lerp toward target on
+   each tick rather than snapping. moodTargetWeights set by mood-button click,
+   moodCurrentWeights animated in updateFace. */
+const MOOD_NAMES = ['neutral','happy','sad','angry','fear','surprise','sleep'];
+const moodTargetWeights = {};
+const moodCurrentWeights = {};
+for (const m of MOOD_NAMES) { moodTargetWeights[m] = 0; moodCurrentWeights[m] = 0; }
+moodTargetWeights.neutral = 1; moodCurrentWeights.neutral = 1;
+
+/* glow layer for the bloom on lines — toggleable via renderConfig.glow */
+const glow = new BABYLON.GlowLayer('glow', scene, { mainTextureFixedSize: 1024, blurKernelSize: 32 });
+glow.intensity = renderConfig.glow ? 0.85 : 0;
+
+/* ─── 4. FACE MESH (single connected low-poly surface) ─────────────────
+   Strategy: build a parametric grid of vertices on a face-shaped surface.
+   Every blendshape is a (uv-center, direction, radius) tuple — vertices
+   near the center receive proportional displacement via gaussian falloff.
+   Optional Laplacian smoothing pass propagates deformations to neighbors,
+   so brows pull on cheeks, mouth opens drag the chin, etc.
+*/
+
+const V = (x, y, z) => new BABYLON.Vector3(x, y, z);
+const faceRoot = new BABYLON.TransformNode('faceRoot', scene);
+
+/* materials */
+const faceMat = new BABYLON.StandardMaterial('faceMat', scene);
+faceMat.diffuseColor  = new BABYLON.Color3(0.05, 0.05, 0.07);
+faceMat.emissiveColor = new BABYLON.Color3(0.012, 0.012, 0.020);
+faceMat.specularColor = new BABYLON.Color3(0.20, 0.22, 0.28);
+faceMat.specularPower = 48;
+faceMat.backFaceCulling = false;
+// v011: respect per-vertex colors when ColorKind is set (depth-fade gradient)
+faceMat.useVertexColor = true;
+
+/* bright wireframe material — used in 'wire' mode (every edge bright) */
+const wireMat = new BABYLON.StandardMaterial('wireMat', scene);
+wireMat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+wireMat.disableLighting = true;
+wireMat.wireframe = true;
+wireMat.backFaceCulling = false;
+wireMat.alpha = 1;
+// v011: vertex colors are the primary line color in wire mode
+wireMat.useVertexColor = true;
+wireMat.emissiveColor = new BABYLON.Color3(1, 1, 1); // multiplied with vertex color
+
+/* ─── 4a. parametric warp: grid (u,v) → face surface (x,y,z) ────────────
+   Uses an elliptical taper so the silhouette is oval, not rectangular.
+   Then layers feature bumps (eye sockets, brow ridge, nose, mouth, cheeks). */
+function warpToFace(u, v) {
+  const xRel = (u - 0.5) * 2;     // -1..1 left to right
+  const yRel = (0.5 - v) * 2;     //  1..-1 top to bottom
+
+  // strong elliptical taper — the boundary of the grid maps to an oval
+  const yNorm = yRel * 0.95;
+  const ovalT = Math.max(0, 1 - yNorm * yNorm);
+  const widthAtY = Math.sqrt(ovalT) * 0.80;
+  let x = xRel * widthAtY;
+
+  // y stays linear; chin extends + forehead squashes
+  let y = yRel * 1.0;
+  if (yRel < -0.4) y = -0.4 + (yRel + 0.4) * 1.55;
+  if (yRel >  0.7) y =  0.7 + (yRel - 0.7) * 0.45;
+
+  // base z bulge — quadratic falloff from center
+  let z = (1 - xRel*xRel * 0.55 - yRel*yRel * 0.55) * 0.22;
+  if (z < -0.05) z = -0.05;
+
+  // eye sockets recess (small but visible)
+  const eyeY = 0.30;
+  const eyeL_d = ((xRel + 0.45) / 0.30) ** 2 + ((yRel - eyeY) / 0.18) ** 2;
+  const eyeR_d = ((xRel - 0.45) / 0.30) ** 2 + ((yRel - eyeY) / 0.18) ** 2;
+  const eyeRecess = 0.045 * renderConfig.eyeDepth;
+  z -= eyeRecess * Math.exp(-eyeL_d);
+  z -= eyeRecess * Math.exp(-eyeR_d);
+
+  // brow ridge bumps forward
+  const brow_d = (xRel / 0.7) ** 2 + ((yRel - 0.55) / 0.10) ** 2;
+  z += 0.045 * Math.exp(-brow_d);
+
+  // nose — the dominant z bump
+  const nose_d = (xRel / 0.18) ** 2 + ((yRel - 0.05) / 0.40) ** 2;
+  z += 0.22 * Math.exp(-nose_d);
+
+  // mouth area pushed slightly forward
+  const mouth_d = (xRel / 0.55) ** 2 + ((yRel + 0.45) / 0.20) ** 2;
+  z += 0.06 * Math.exp(-mouth_d);
+
+  // cheekbones
+  const cheekL_d = ((xRel + 0.55) / 0.30) ** 2 + ((yRel - 0.05) / 0.28) ** 2;
+  const cheekR_d = ((xRel - 0.55) / 0.30) ** 2 + ((yRel - 0.05) / 0.28) ** 2;
+  z += 0.04 * Math.exp(-cheekL_d);
+  z += 0.04 * Math.exp(-cheekR_d);
+
+  return V(x, y, z);
+}
+
+/* ─── 4a-bis. mouth center constants — hoisted so anchor code in rebuildMesh
+   can use them. The lip-target formula below is shared by both the mesh
+   anchor pass AND the minimal-line beziers, so they animate identically. */
+const mouthCenterUV = warpToFace(0.50, 0.69);
+const mouthBaseHW = 0.27;
+
+/* compute precise lip target position for a vertex at normalized horizontal
+   position xRel ∈ [-1, +1] (corner-to-corner), upper or lower lip. */
+function lipTarget(xRel, isUpper, p) {
+  const cx = mouthCenterUV.x, cy = mouthCenterUV.y, cz = mouthCenterUV.z;
+  const hw = mouthBaseHW * (1 + p.width * 0.40) * (1 - p.round * 0.40);
+
+  const vAmp = renderConfig.lipVertAmp;        // global vertical motion scale
+  const closeF = renderConfig.lipPressForce;   // PP/MM/FF closing pressure scale
+
+  const sep = p.open * 0.16 * vAmp;
+  // FIX: lipPress now genuinely COMPRESSES — upper moves DOWN, lower moves UP
+  const compress = p.lipPress * 0.012 * vAmp * closeF;
+  const jawDrop = p.jaw * 0.09 * vAmp;
+  const smileLift = p.smile * 0.05;
+  const roundFwd = p.round * 0.07;
+
+  let cp;
+  // natural lip thickness dip reduces when lips are pressed — at full PP/MM
+  // closure both upper and lower beziers converge near the centerline.
+  const upperDip = 0.007 * (1 - p.lipPress * 0.55);
+  const lowerDip = 0.022 * (1 - p.lipPress * 0.55);
+  if (isUpper) {
+    // upperY is below baseline by `compress` (upper lip pushed down when pressed)
+    const upperY = cy + sep / 2 - compress + smileLift * 0.4;
+    cp = [
+      [-1.00, cy + smileLift,    -roundFwd * 0.5],
+      [-0.45, upperY + 0.012,     0.012],
+      [ 0.00, upperY - upperDip,  0.018 + roundFwd],
+      [ 0.45, upperY + 0.012,     0.012],
+      [ 1.00, cy + smileLift,    -roundFwd * 0.5],
+    ];
+  } else {
+    // lowerY is above baseline by `compress` (lower lip pushed up when pressed)
+    const lowerY = cy - sep / 2 + compress - jawDrop;
+    cp = [
+      [-1.00, cy + smileLift,        -roundFwd * 0.5],
+      [-0.50, lowerY - 0.005,         0.014],
+      [ 0.00, lowerY - lowerDip,      0.022 + roundFwd * 1.1],
+      [ 0.50, lowerY - 0.005,         0.014],
+      [ 1.00, cy + smileLift,        -roundFwd * 0.5],
+    ];
+  }
+  // piecewise-linear interp between control points
+  xRel = Math.max(-1, Math.min(1, xRel));
+  let i = 0;
+  while (i < cp.length - 1 && xRel > cp[i + 1][0]) i++;
+  i = Math.min(i, cp.length - 2);
+  const t = (xRel - cp[i][0]) / (cp[i + 1][0] - cp[i][0]);
+  const yT = cp[i][1] * (1 - t) + cp[i + 1][1] * t;
+  const zO = cp[i][2] * (1 - t) + cp[i + 1][2] * t;
+  return V(cx + xRel * hw, yT, cz + zO);
+}
+
+/* ─── 4b. blendshape definitions (in uv space) ──────────────────────────
+   Each blendshape: { uv: [u, v], dir: V(dx, dy, dz), radius: r }
+   Falloff is gaussian; radius is in uv-distance units. */
+const SHAPES = {
+  // mouth — driven by computeMouthParams() output (open/width/round/smile/lipPress/jaw)
+  mouth_jaw_drop:    { uv:[0.50, 0.78], dir: V( 0.00,-0.20,-0.02), radius: 0.28 },
+  mouth_open_lower:  { uv:[0.50, 0.71], dir: V( 0.00,-0.10, 0.00), radius: 0.16 },
+  mouth_open_upper:  { uv:[0.50, 0.66], dir: V( 0.00, 0.04, 0.00), radius: 0.13 },
+  mouth_smile_L:     { uv:[0.32, 0.69], dir: V(-0.06, 0.07,-0.02), radius: 0.13 },
+  mouth_smile_R:     { uv:[0.68, 0.69], dir: V( 0.06, 0.07,-0.02), radius: 0.13 },
+  mouth_frown_L:     { uv:[0.32, 0.69], dir: V( 0.02,-0.07, 0.00), radius: 0.13 },
+  mouth_frown_R:     { uv:[0.68, 0.69], dir: V(-0.02,-0.07, 0.00), radius: 0.13 },
+  mouth_round_L:     { uv:[0.32, 0.69], dir: V( 0.07, 0.00, 0.03), radius: 0.13 },
+  mouth_round_R:     { uv:[0.68, 0.69], dir: V(-0.07, 0.00, 0.03), radius: 0.13 },
+  mouth_round_top:   { uv:[0.50, 0.66], dir: V( 0.00,-0.02, 0.04), radius: 0.12 },
+  mouth_round_bot:   { uv:[0.50, 0.71], dir: V( 0.00, 0.02, 0.04), radius: 0.12 },
+  mouth_press_top:   { uv:[0.50, 0.66], dir: V( 0.00,-0.025, 0.00), radius: 0.12 },
+  mouth_press_bot:   { uv:[0.50, 0.71], dir: V( 0.00, 0.025, 0.00), radius: 0.12 },
+  mouth_width_L:     { uv:[0.32, 0.69], dir: V(-0.05, 0.00, 0.00), radius: 0.13 },
+  mouth_width_R:     { uv:[0.68, 0.69], dir: V( 0.05, 0.00, 0.00), radius: 0.13 },
+
+  // eyes
+  eye_blink_L_up:    { uv:[0.30, 0.36], dir: V( 0.00,-0.05,-0.02), radius: 0.08 },
+  eye_blink_L_lo:    { uv:[0.30, 0.45], dir: V( 0.00, 0.03, 0.00), radius: 0.08 },
+  eye_blink_R_up:    { uv:[0.70, 0.36], dir: V( 0.00,-0.05,-0.02), radius: 0.08 },
+  eye_blink_R_lo:    { uv:[0.70, 0.45], dir: V( 0.00, 0.03, 0.00), radius: 0.08 },
+  eye_squint_L:      { uv:[0.30, 0.42], dir: V( 0.00,-0.015, 0.00), radius: 0.10 },
+  eye_squint_R:      { uv:[0.70, 0.42], dir: V( 0.00,-0.015, 0.00), radius: 0.10 },
+
+  // brows
+  brow_inner_L:      { uv:[0.42, 0.25], dir: V( 0.00, 0.06, 0.02), radius: 0.10 },
+  brow_inner_R:      { uv:[0.58, 0.25], dir: V( 0.00, 0.06, 0.02), radius: 0.10 },
+  brow_outer_L:      { uv:[0.20, 0.27], dir: V( 0.00, 0.05, 0.00), radius: 0.12 },
+  brow_outer_R:      { uv:[0.80, 0.27], dir: V( 0.00, 0.05, 0.00), radius: 0.12 },
+  brow_down_L:       { uv:[0.30, 0.27], dir: V( 0.00,-0.05, 0.00), radius: 0.14 },
+  brow_down_R:       { uv:[0.70, 0.27], dir: V( 0.00,-0.05, 0.00), radius: 0.14 },
+
+  // nose
+  nose_sneer_L:      { uv:[0.42, 0.55], dir: V( 0.00, 0.03, 0.02), radius: 0.08 },
+  nose_sneer_R:      { uv:[0.58, 0.55], dir: V( 0.00, 0.03, 0.02), radius: 0.08 },
+};
+
+/* ─── 4c. mesh state ────────────────────────────────────────────────────── */
+let mesh = null;
+let baseVertices = [];
+let baseUVs = [];
+let triIndices = [];
+let adjacency = [];
+let _dispBuf = null;       // reused per-frame displacement buffer
+let _posBuf = null;
+let _normBuf = null;
+let _colBuf = null;        // v011: per-vertex RGBA for depth-fade gradient
+let _zMin = 0, _zMax = 0;  // mesh z bounds, set in rebuildMesh, used by depth-fade pass
+let _baseRGB = [1, 1, 1];  // parsed renderConfig.baseColor (0-1)
+let _fadeRGB = [0, 0, 0];  // parsed renderConfig.fadeColor (0-1)
+let _dirtyBaseColor = false; // set by color picker to trigger one-shot repaint when fade is off
+
+function hex2rgb(hex) {
+  const h = hex.replace('#', '');
+  return [
+    parseInt(h.slice(0, 2), 16) / 255,
+    parseInt(h.slice(2, 4), 16) / 255,
+    parseInt(h.slice(4, 6), 16) / 255,
+  ];
+}
+
+/* anchor rings — vertices driven directly from feature-curve formulas.
+   Populated by identifyAnchorRings() at mesh build time. */
+let mouthRingVerts = [];   // [{ idx, isUpper, xRel, weight, baselineTarget }]
+let eyeRingVerts = [];     // [{ idx, side, isUpper, xRel, weight, baselineTarget }]
+
+const NEUTRAL_MOUTH = { open: 0, width: 0, round: 0, smile: 0, lipPress: 0.30, jaw: 0 };
+const NEUTRAL_EYE_BLINK = 0;
+const NEUTRAL_EYE_SQUINT = 0;
+
+function rebuildMesh() {
+  if (mesh) { mesh.dispose(); mesh = null; }
+
+  const cols = renderConfig.meshCols;
+  const rows = renderConfig.meshRows;
+
+  baseVertices = [];
+  baseUVs = [];
+  triIndices = [];
+
+  // grid vertices
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const u = c / (cols - 1);
+      const v = r / (rows - 1);
+      baseUVs.push({ u, v });
+      baseVertices.push(warpToFace(u, v));
+    }
+  }
+
+  // fragment mode: clip triangles whose UV centroid falls outside an oval
+  // (matches the silhouette of warpToFace, but cuts the corners cleanly)
+  function inOval(u, v) {
+    const xRel = (u - 0.5) * 2;
+    const yRel = (0.5 - v) * 2;
+    return (xRel * xRel) / 0.85 + (yRel * yRel) / 1.05 < 1.0;
+  }
+  const clip = renderConfig.fragment;
+
+  // mouth puncture: skip triangles whose centroid lies inside an ellipse
+  // around the mouth. Vertices stay (they form the boundary), so when visemes
+  // pull them apart, the hole grows and the lip-line ring stays attached.
+  const mouthHoleRU = 0.18 * renderConfig.mouthHoleSize;  // u-axis radius
+  const mouthHoleRV = 0.075 * renderConfig.mouthHoleSize; // v-axis radius
+  const mouthCU = 0.50, mouthCV = 0.69;
+  const cutMouth = renderConfig.mouthHole;
+
+  // eye sockets puncture (optional)
+  const eyeRU = 0.085, eyeRV = 0.045;
+  const eyeLU = 0.30, eyeLV = 0.40;
+  const eyeRU2 = 0.70, eyeRV2 = 0.40;
+  const cutEyes = renderConfig.eyeHoles;
+
+  // triangulate quads, alternating diagonals for visual variety
+  function maybeAdd(a, b, c) {
+    const cu = (baseUVs[a].u + baseUVs[b].u + baseUVs[c].u) / 3;
+    const cv = (baseUVs[a].v + baseUVs[b].v + baseUVs[c].v) / 3;
+
+    if (clip && !inOval(cu, cv)) return;
+
+    if (cutMouth) {
+      const du = (cu - mouthCU) / mouthHoleRU;
+      const dv = (cv - mouthCV) / mouthHoleRV;
+      if (du * du + dv * dv < 1) return;
+    }
+    if (cutEyes) {
+      const lu = (cu - eyeLU) / eyeRU, lv = (cv - eyeLV) / eyeRV;
+      if (lu * lu + lv * lv < 1) return;
+      const ru = (cu - eyeRU2) / eyeRU, rv = (cv - eyeRV2) / eyeRV;
+      if (ru * ru + rv * rv < 1) return;
+    }
+    triIndices.push(a, b, c);
+  }
+  for (let r = 0; r < rows - 1; r++) {
+    for (let c = 0; c < cols - 1; c++) {
+      const i00 = r * cols + c;
+      const i10 = r * cols + (c + 1);
+      const i01 = (r + 1) * cols + c;
+      const i11 = (r + 1) * cols + (c + 1);
+      if ((r + c) % 2 === 0) {
+        maybeAdd(i00, i10, i11); maybeAdd(i00, i11, i01);
+      } else {
+        maybeAdd(i00, i10, i01); maybeAdd(i10, i11, i01);
+      }
+    }
+  }
+
+  adjacency = computeAdjacency(triIndices, baseVertices.length);
+
+  // build the Babylon mesh
+  mesh = new BABYLON.Mesh('face', scene);
+  mesh.parent = faceRoot;
+
+  const N = baseVertices.length;
+  _posBuf  = new Float32Array(N * 3);
+  _normBuf = new Float32Array(N * 3);
+  _colBuf  = new Float32Array(N * 4);   // RGBA per vertex for depth-fade gradient
+  _dispBuf = new Array(N);
+  // record approximate z bounds of the rest mesh — used to remap depth fade
+  _zMin = +Infinity; _zMax = -Infinity;
+  for (let i = 0; i < N; i++) {
+    _posBuf[3*i  ] = baseVertices[i].x;
+    _posBuf[3*i+1] = baseVertices[i].y;
+    _posBuf[3*i+2] = baseVertices[i].z;
+    if (baseVertices[i].z < _zMin) _zMin = baseVertices[i].z;
+    if (baseVertices[i].z > _zMax) _zMax = baseVertices[i].z;
+    _dispBuf[i] = V(0, 0, 0);
+    _colBuf[4*i] = 1; _colBuf[4*i+1] = 1; _colBuf[4*i+2] = 1; _colBuf[4*i+3] = 1;
+  }
+  BABYLON.VertexData.ComputeNormals(_posBuf, triIndices, _normBuf);
+
+  const vd = new BABYLON.VertexData();
+  vd.positions = Array.from(_posBuf);
+  vd.indices   = triIndices;
+  vd.normals   = Array.from(_normBuf);
+  vd.colors    = Array.from(_colBuf);
+  vd.applyToMesh(mesh, true);  // updatable=true
+
+  applyRenderMode();
+  applyFaceFlip();
+  applyMeshVisibility();
+  identifyAnchorRings();
+  updateGeometryCounter();
+}
+
+/* identify ring vertices for mouth + eye anchor passes, and cache their
+   baseline targets so neutral state produces zero displacement. */
+function identifyAnchorRings() {
+  mouthRingVerts = [];
+  eyeRingVerts = [];
+
+  // ── mouth ring ──
+  const mRU = 0.18 * renderConfig.mouthHoleSize;
+  const mRV = 0.075 * renderConfig.mouthHoleSize;
+  const mCU = 0.50, mCV = 0.69;
+  for (let i = 0; i < baseUVs.length; i++) {
+    const du = (baseUVs[i].u - mCU) / mRU;
+    const dv = (baseUVs[i].v - mCV) / mRV;
+    const d2 = du * du + dv * dv;
+    if (d2 < 4) {
+      const isUpper = baseUVs[i].v < mCV;
+      const xRel = Math.max(-1, Math.min(1, du));
+      // weight peaks at the ring (d2=1), fades to 0 at d2=0 and d2>=4
+      let weight;
+      if (d2 <= 1) weight = d2;          // ramp up from 0..1 in interior
+      else weight = (4 - d2) / 3;        // ramp down 1..0 outside
+      weight = Math.max(0, Math.min(1, weight));
+      mouthRingVerts.push({ idx: i, isUpper, xRel, weight,
+                            baselineTarget: lipTarget(xRel, isUpper, NEUTRAL_MOUTH) });
+    }
+  }
+
+  // ── eye rings ──
+  const eyeRingDef = [
+    { side: 'L', cu: 0.30, cv: 0.40, ru: 0.085, rv: 0.045, hw: 0.10, hh: 0.040 },
+    { side: 'R', cu: 0.70, cv: 0.40, ru: 0.085, rv: 0.045, hw: 0.10, hh: 0.040 },
+  ];
+  for (const e of eyeRingDef) {
+    for (let i = 0; i < baseUVs.length; i++) {
+      const du = (baseUVs[i].u - e.cu) / e.ru;
+      const dv = (baseUVs[i].v - e.cv) / e.rv;
+      const d2 = du * du + dv * dv;
+      if (d2 < 4) {
+        const isUpper = baseUVs[i].v < e.cv;
+        const xRel = Math.max(-1, Math.min(1, du));
+        let weight;
+        if (d2 <= 1) weight = d2;
+        else weight = (4 - d2) / 3;
+        weight = Math.max(0, Math.min(1, weight));
+        const center = warpToFace(e.cu, e.cv);
+        eyeRingVerts.push({
+          idx: i, side: e.side, isUpper, xRel, weight,
+          eyeDef: { center, hw: e.hw, hh: e.hh },
+          baselineTarget: eyeLidTargetFor(xRel, isUpper,
+                                          { center, hw: e.hw, hh: e.hh },
+                                          NEUTRAL_EYE_BLINK, NEUTRAL_EYE_SQUINT)
+        });
+      }
+    }
+  }
+
+  // expose count
+  const el = document.getElementById('coord-anchor');
+  if (el) el.textContent = String(mouthRingVerts.length).padStart(2, '0') + '/' +
+                           String(eyeRingVerts.length).padStart(2, '0');
+}
+
+/* eye lid target — same formula the bezier uses, evaluated at one xRel. */
+function eyeLidTargetFor(xRel, isUpper, eyeDef, blink, squint) {
+  // a in [0, π], xRel = -1 → a=0 (left corner), xRel=+1 → a=π (right)
+  const a = ((xRel + 1) / 2) * Math.PI;
+  const x = eyeDef.center.x + Math.cos(Math.PI - a) * eyeDef.hw;
+  const baseY = eyeDef.center.y + (isUpper ? 1 : -1) * Math.sin(a) * eyeDef.hh;
+  const y = baseY * (1 - blink) + eyeDef.center.y * blink;
+  const squintShift = squint * 0.012;
+  const yWithSquint = y + (isUpper ? -squintShift : squintShift * 0.5);
+  const z = eyeDef.center.z + 0.018 + Math.sin(a) * 0.012;
+  return V(x, yWithSquint, z);
+}
+
+/* v011: push lower-face vertices forward (positive z) when the jaw opens.
+   Creates a stylized "stretched / extended jaw" look that exaggerates speech.
+   Weight ramps up below v=0.55 (mid-face) and reaches max at chin (v=1.0). */
+function applyJawExtension(disp) {
+  const amt = renderConfig.jawExtend;
+  if (amt < 0.001) return;
+  const open = state.jawOpen || 0;
+  if (open < 0.001) return;
+  const push = open * amt * 0.10;
+  for (let i = 0; i < baseUVs.length; i++) {
+    const v = baseUVs[i].v;
+    if (v < 0.55) continue;
+    const w = Math.min(1, (v - 0.55) / 0.45);
+    disp[i].z += push * w;
+  }
+}
+
+/* v011: scale the region around the mouth outward (XY) and slightly forward (Z)
+   proportional to how open the mouth currently is. Gives a "growing talking
+   mouth" effect on top of the regular lip motion. */
+function applyMouthGrow(disp) {
+  const amt = renderConfig.mouthGrow;
+  if (amt < 0.001) return;
+  const p = computeMouthParams();
+  const openness = p.open;
+  if (openness < 0.001) return;
+  const scale = openness * amt;
+  const r = 0.25;        // UV radius of effect
+  const r2 = r * r;
+  const cu = 0.50, cv = 0.69;
+  for (let i = 0; i < baseUVs.length; i++) {
+    const du = baseUVs[i].u - cu;
+    const dv = baseUVs[i].v - cv;
+    const d2 = du*du + dv*dv;
+    if (d2 > r2) continue;
+    const w = 1 - Math.sqrt(d2 / r2);  // tent weight, 1 at center → 0 at radius
+    const base = baseVertices[i];
+    disp[i].x += (base.x - mouthCenterUV.x) * scale * w * 0.40;
+    disp[i].y += (base.y - mouthCenterUV.y) * scale * w * 0.40;
+    disp[i].z += scale * w * 0.05;
+  }
+}
+
+/* apply mouth anchor — drives ring vertices to match the lip-curve formula */
+function applyMouthAnchors(disp) {
+  if (!renderConfig.mouthAnchor) return;
+  const p = computeMouthParams();
+  for (const v of mouthRingVerts) {
+    const target = lipTarget(v.xRel, v.isUpper, p);
+    const dx = target.x - v.baselineTarget.x;
+    const dy = target.y - v.baselineTarget.y;
+    const dz = target.z - v.baselineTarget.z;
+    const w = v.weight;
+    disp[v.idx].x = disp[v.idx].x * (1 - w) + dx * w;
+    disp[v.idx].y = disp[v.idx].y * (1 - w) + dy * w;
+    disp[v.idx].z = disp[v.idx].z * (1 - w) + dz * w;
+  }
+}
+
+/* apply eye anchor — drives eye ring vertices to match the lid-arc formula */
+function applyEyeAnchors(disp) {
+  if (!renderConfig.eyeAnchor) return;
+  const blinkL = state.eyeBlinkLeft;
+  const blinkR = state.eyeBlinkRight;
+  const squint = state.eyeSquint;
+  for (const v of eyeRingVerts) {
+    const blink = v.side === 'L' ? blinkL : blinkR;
+    const target = eyeLidTargetFor(v.xRel, v.isUpper, v.eyeDef, blink, squint);
+    const dx = target.x - v.baselineTarget.x;
+    const dy = target.y - v.baselineTarget.y;
+    const dz = target.z - v.baselineTarget.z;
+    const w = v.weight;
+    disp[v.idx].x = disp[v.idx].x * (1 - w) + dx * w;
+    disp[v.idx].y = disp[v.idx].y * (1 - w) + dy * w;
+    disp[v.idx].z = disp[v.idx].z * (1 - w) + dz * w;
+  }
+}
+
+function applyFaceFlip() {
+  faceRoot.rotation.y = renderConfig.flipFace ? Math.PI : 0;
+}
+
+function applyMeshVisibility() {
+  if (mesh) mesh.isVisible = renderConfig.meshVisible;
+}
+
+function updateGeometryCounter() {
+  const triCount = triIndices.length / 3;
+  const vertCount = baseVertices.length;
+  const el = document.getElementById('coord-tris');
+  if (el) el.textContent = String(triCount).padStart(3, '0');
+  const elV = document.getElementById('coord-verts');
+  if (elV) elV.textContent = String(vertCount).padStart(3, '0');
+}
+
+function computeAdjacency(indices, nVerts) {
+  const adj = Array.from({ length: nVerts }, () => new Set());
+  for (let i = 0; i < indices.length; i += 3) {
+    const a = indices[i], b = indices[i+1], c = indices[i+2];
+    adj[a].add(b); adj[a].add(c);
+    adj[b].add(a); adj[b].add(c);
+    adj[c].add(a); adj[c].add(b);
+  }
+  return adj.map(s => Array.from(s));
+}
+
+function applyRenderMode() {
+  if (!mesh) return;
+  if (mesh._edgesRenderer) mesh.disableEdgesRendering();
+  const w = renderConfig.lineThickness;
+
+  switch (renderConfig.mode) {
+    case 'wire':
+      // GL_LINES wireframe — draws straight from the live position buffer,
+      // so mesh deformation just works every frame for free. Width is locked
+      // to 1px on virtually all WebGL drivers (the spec allows 1.0 only),
+      // so the lineThickness slider can't change wire-mode stroke width.
+      // Thick wire is what the 'edges' mode below is for.
+      mesh.material = wireMat;
+      wireMat.wireframe = true;
+      wireMat.alpha = 1.0;
+      break;
+    case 'edges':
+      // enableEdgesRendering builds a SEPARATE static line geometry from
+      // the mesh — it does NOT auto-refresh when vertices move. We rebuild
+      // it once per frame inside updateFace() so deformation stays visible.
+      // edgesWidth respects the lineThickness slider.
+      mesh.material = faceMat;
+      faceMat.alpha = 1.0;
+      faceMat.wireframe = false;
+      mesh.enableEdgesRendering(0.9999);
+      mesh.edgesWidth = 4 * w;
+      mesh.edgesColor = new BABYLON.Color4(1, 1, 1, 1);
+      break;
+    case 'shaded':
+      // Raw lit mesh, no wireframe at all.
+      mesh.material = faceMat;
+      faceMat.alpha = 1.0;
+      faceMat.wireframe = false;
+      break;
+  }
+}
+
+/* ─── 4d. apply a single blendshape to displacement array ─────────────── */
+function applyShape(disp, shape, weight, spread) {
+  if (Math.abs(weight) < 0.001) return;
+  const cu = shape.uv[0], cv = shape.uv[1];
+  const r  = shape.radius * spread;
+  const r2 = r * r;
+  const dx = shape.dir.x * weight;
+  const dy = shape.dir.y * weight;
+  const dz = shape.dir.z * weight;
+  const cutoff = r2 * 4;
+  for (let i = 0; i < baseUVs.length; i++) {
+    const du = baseUVs[i].u - cu;
+    const dv = baseUVs[i].v - cv;
+    const d2 = du*du + dv*dv;
+    if (d2 > cutoff) continue;
+    const f = Math.exp(-d2 / r2);
+    if (f < 0.005) continue;
+    disp[i].x += dx * f;
+    disp[i].y += dy * f;
+    disp[i].z += dz * f;
+  }
+}
+
+/* ─── 4e. compose all morphs from current channel state ───────────────── */
+function computeMorphs(disp) {
+  const spread = renderConfig.spread;
+
+  // mouth (visemes → 6 mouth params → multiple shapes)
+  const m = computeMouthParams();
+  applyShape(disp, SHAPES.mouth_jaw_drop,    m.jaw, spread);
+  applyShape(disp, SHAPES.mouth_open_lower,  m.open, spread);
+  applyShape(disp, SHAPES.mouth_open_upper,  m.open * 0.4, spread);
+  if (m.smile > 0) {
+    applyShape(disp, SHAPES.mouth_smile_L, m.smile, spread);
+    applyShape(disp, SHAPES.mouth_smile_R, m.smile, spread);
+  } else if (m.smile < 0) {
+    applyShape(disp, SHAPES.mouth_frown_L, -m.smile, spread);
+    applyShape(disp, SHAPES.mouth_frown_R, -m.smile, spread);
+  }
+  applyShape(disp, SHAPES.mouth_round_L,   m.round, spread);
+  applyShape(disp, SHAPES.mouth_round_R,   m.round, spread);
+  applyShape(disp, SHAPES.mouth_round_top, m.round, spread);
+  applyShape(disp, SHAPES.mouth_round_bot, m.round, spread);
+  applyShape(disp, SHAPES.mouth_press_top, m.lipPress, spread);
+  applyShape(disp, SHAPES.mouth_press_bot, m.lipPress, spread);
+  if (m.width > 0) {
+    applyShape(disp, SHAPES.mouth_width_L, m.width, spread);
+    applyShape(disp, SHAPES.mouth_width_R, m.width, spread);
+  }
+
+  // eyes
+  applyShape(disp, SHAPES.eye_blink_L_up, state.eyeBlinkLeft,  spread);
+  applyShape(disp, SHAPES.eye_blink_L_lo, state.eyeBlinkLeft,  spread);
+  applyShape(disp, SHAPES.eye_blink_R_up, state.eyeBlinkRight, spread);
+  applyShape(disp, SHAPES.eye_blink_R_lo, state.eyeBlinkRight, spread);
+  applyShape(disp, SHAPES.eye_squint_L,   state.eyeSquint, spread);
+  applyShape(disp, SHAPES.eye_squint_R,   state.eyeSquint, spread);
+
+  // brows
+  applyShape(disp, SHAPES.brow_inner_L, state.browInnerUp, spread);
+  applyShape(disp, SHAPES.brow_inner_R, state.browInnerUp, spread);
+  if (state.browOuterUp >= 0) {
+    applyShape(disp, SHAPES.brow_outer_L, state.browOuterUp, spread);
+    applyShape(disp, SHAPES.brow_outer_R, state.browOuterUp, spread);
+  } else {
+    applyShape(disp, SHAPES.brow_down_L, -state.browOuterUp * 0.6, spread);
+    applyShape(disp, SHAPES.brow_down_R, -state.browOuterUp * 0.6, spread);
+  }
+  applyShape(disp, SHAPES.brow_down_L, state.browDown, spread);
+  applyShape(disp, SHAPES.brow_down_R, state.browDown, spread);
+
+  // nose
+  applyShape(disp, SHAPES.nose_sneer_L, state.noseSneer, spread);
+  applyShape(disp, SHAPES.nose_sneer_R, state.noseSneer, spread);
+}
+
+/* ─── 4f. Laplacian smoothing — propagate deformations to neighbors ──── */
+function couple(disp, factor) {
+  const N = disp.length;
+  // store original to avoid in-place feedback
+  const ox = new Float32Array(N), oy = new Float32Array(N), oz = new Float32Array(N);
+  for (let i = 0; i < N; i++) { ox[i] = disp[i].x; oy[i] = disp[i].y; oz[i] = disp[i].z; }
+  for (let i = 0; i < N; i++) {
+    const nbrs = adjacency[i];
+    if (nbrs.length === 0) continue;
+    let sx = 0, sy = 0, sz = 0;
+    for (const j of nbrs) { sx += ox[j]; sy += oy[j]; sz += oz[j]; }
+    sx /= nbrs.length; sy /= nbrs.length; sz /= nbrs.length;
+    disp[i].x = ox[i] * (1 - factor) + sx * factor;
+    disp[i].y = oy[i] * (1 - factor) + sy * factor;
+    disp[i].z = oz[i] * (1 - factor) + sz * factor;
+  }
+}
+
+/* ─── 4g. local feature scales (post-process: scale around feature centers) ─── */
+const FEATURE_CENTERS = [
+  { name: 'nose',  uv: [0.50, 0.50], radiusUV: 0.16, get scale() { return renderConfig.scaleNose;  } },
+  { name: 'eyeL',  uv: [0.30, 0.40], radiusUV: 0.11, get scale() { return renderConfig.scaleEyes;  } },
+  { name: 'eyeR',  uv: [0.70, 0.40], radiusUV: 0.11, get scale() { return renderConfig.scaleEyes;  } },
+  { name: 'mouth', uv: [0.50, 0.70], radiusUV: 0.18, get scale() { return renderConfig.scaleMouth; } },
+];
+
+function applyFeatureScales(disp) {
+  for (const f of FEATURE_CENTERS) {
+    const s = f.scale;
+    if (Math.abs(s - 1) < 0.001) continue;
+    const center = warpToFace(f.uv[0], f.uv[1]);
+    const r2 = f.radiusUV * f.radiusUV;
+    const cutoff = r2 * 4;
+    for (let i = 0; i < baseUVs.length; i++) {
+      const du = baseUVs[i].u - f.uv[0];
+      const dv = baseUVs[i].v - f.uv[1];
+      const d2 = du*du + dv*dv;
+      if (d2 > cutoff) continue;
+      const w = Math.exp(-d2 / r2);
+      const ox = baseVertices[i].x - center.x;
+      const oy = baseVertices[i].y - center.y;
+      const oz = baseVertices[i].z - center.z;
+      const k = (s - 1) * w;
+      disp[i].x += ox * k;
+      disp[i].y += oy * k;
+      disp[i].z += oz * k;
+    }
+  }
+}
+
+/* ─── 4h. optional pupils + iris (visual aid for look direction) ──────── */
+let pupilMat = null, pupilL = null, pupilR = null;
+let irisMat = null,  irisL = null,  irisR = null;
+
+function rebuildPupils() {
+  if (pupilL) { pupilL.dispose(); pupilL = null; }
+  if (pupilR) { pupilR.dispose(); pupilR = null; }
+  if (irisL)  { irisL.dispose();  irisL  = null; }
+  if (irisR)  { irisR.dispose();  irisR  = null; }
+  if (!renderConfig.pupils) return;
+  if (!pupilMat) {
+    pupilMat = new BABYLON.StandardMaterial('pupilMat', scene);
+    pupilMat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+    pupilMat.disableLighting = true;
+    pupilMat.backFaceCulling = false;
+  }
+  if (!irisMat) {
+    irisMat = new BABYLON.StandardMaterial('irisMat', scene);
+    irisMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+    irisMat.disableLighting = true;
+    irisMat.backFaceCulling = false;
+  }
+  // iris (larger disc behind pupil) — sits slightly closer to face (smaller z offset)
+  const irisR_size = 0.035 * renderConfig.irisSize;
+  irisL = BABYLON.MeshBuilder.CreateDisc('irisL', { radius: irisR_size, tessellation: 24 }, scene);
+  irisR = BABYLON.MeshBuilder.CreateDisc('irisR', { radius: irisR_size, tessellation: 24 }, scene);
+  irisL.material = irisR.material = irisMat;
+  irisL.parent = irisR.parent = faceRoot;
+  // pupil in front
+  pupilL = BABYLON.MeshBuilder.CreateDisc('pupilL', { radius: 0.035, tessellation: 14 }, scene);
+  pupilR = BABYLON.MeshBuilder.CreateDisc('pupilR', { radius: 0.035, tessellation: 14 }, scene);
+  pupilL.material = pupilR.material = pupilMat;
+  pupilL.parent = pupilR.parent = faceRoot;
+}
+
+function updatePupils() {
+  if (!pupilL || !pupilR) return;
+  const lookH = state.eyeLookH * 0.05;
+  const lookV = state.eyeLookV * 0.035;
+  const eyeL = warpToFace(0.30, 0.40);
+  const eyeR = warpToFace(0.70, 0.40);
+  // iris — slightly behind pupil and shifted less by gaze (iris doesn't follow gaze fully)
+  if (irisL && irisR) {
+    irisL.position.set(eyeL.x + lookH * 0.6, eyeL.y + lookV * 0.6, eyeL.z + 0.045);
+    irisR.position.set(eyeR.x + lookH * 0.6, eyeR.y + lookV * 0.6, eyeR.z + 0.045);
+  }
+  pupilL.position.set(eyeL.x + lookH, eyeL.y + lookV, eyeL.z + 0.05);
+  pupilR.position.set(eyeR.x + lookH, eyeR.y + lookV, eyeR.z + 0.05);
+  const blink = (state.eyeBlinkLeft + state.eyeBlinkRight) * 0.5;
+  pupilL.isVisible = pupilR.isVisible = blink < 0.85;
+  if (irisL && irisR) irisL.isVisible = irisR.isVisible = blink < 0.85;
+}
+
+/* ─── 4i. per-frame face update ──────────────────────────────────────── */
+/* per-frame raw-state cache for gain sandwich */
+const _stateRawSnap = {};
+
+function updateFace() {
+  if (!mesh) return;
+
+  /* apply per-channel gains: stash raw values, multiply state in place.
+     All downstream displacement reads (computeMouthParams, applyShape,
+     updatePupils, updateMinimal, head pose) get the gained values for free
+     without refactoring 30+ call sites. We restore at the end so the channel
+     bar display elsewhere still reads raw values. */
+  for (let i = 0; i < CHANNEL_NAMES.length; i++) {
+    const ch = CHANNEL_NAMES[i];
+    _stateRawSnap[ch] = state[ch];
+    state[ch] = state[ch] * (channelGains[ch] || 1);
+  }
+
+  // reset displacement buffer
+  for (let i = 0; i < _dispBuf.length; i++) {
+    _dispBuf[i].x = _dispBuf[i].y = _dispBuf[i].z = 0;
+  }
+
+  computeMorphs(_dispBuf);
+  if (renderConfig.reactivity > 0) couple(_dispBuf, renderConfig.reactivity);
+  applyFeatureScales(_dispBuf);
+  applyJawExtension(_dispBuf);   // v011: z-forward push of lower face on jaw open
+  applyMouthGrow(_dispBuf);      // v011: scale mouth region outward proportional to openness
+  applyMouthAnchors(_dispBuf);
+  applyEyeAnchors(_dispBuf);
+
+  // write final positions
+  for (let i = 0; i < baseVertices.length; i++) {
+    _posBuf[3*i  ] = baseVertices[i].x + _dispBuf[i].x;
+    _posBuf[3*i+1] = baseVertices[i].y + _dispBuf[i].y;
+    _posBuf[3*i+2] = baseVertices[i].z + _dispBuf[i].z;
+  }
+  mesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, _posBuf);
+
+  /* depth-fade: lerp each vertex's color from baseColor (front) → fadeColor (back)
+     by its z position. Only updates the GPU buffer when depthFade is non-zero
+     (idle case stays cheap). The mesh material reads useVertexColor so wireframe
+     lines pick up these colors automatically. */
+  if (renderConfig.depthFade > 0.001 && _baseRGB && _fadeRGB) {
+    const zRange = (_zMax - _zMin) || 1;
+    const f = renderConfig.depthFade;
+    for (let i = 0; i < baseVertices.length; i++) {
+      // currentZ from already-updated _posBuf
+      const z = _posBuf[3*i + 2];
+      // t: 0 at front (max z), 1 at back (min z)
+      const t = Math.max(0, Math.min(1, (_zMax - z) / zRange)) * f;
+      _colBuf[4*i  ] = _baseRGB[0] * (1 - t) + _fadeRGB[0] * t;
+      _colBuf[4*i+1] = _baseRGB[1] * (1 - t) + _fadeRGB[1] * t;
+      _colBuf[4*i+2] = _baseRGB[2] * (1 - t) + _fadeRGB[2] * t;
+      _colBuf[4*i+3] = 1;
+    }
+    mesh.updateVerticesData(BABYLON.VertexBuffer.ColorKind, _colBuf);
+  } else if (_dirtyBaseColor && _baseRGB) {
+    // depth fade off but base color changed — repaint all vertices to flat base
+    for (let i = 0; i < baseVertices.length; i++) {
+      _colBuf[4*i  ] = _baseRGB[0];
+      _colBuf[4*i+1] = _baseRGB[1];
+      _colBuf[4*i+2] = _baseRGB[2];
+      _colBuf[4*i+3] = 1;
+    }
+    mesh.updateVerticesData(BABYLON.VertexBuffer.ColorKind, _colBuf);
+    _dirtyBaseColor = false;
+  }
+
+  // recompute normals only when shaded faces are visible
+  if (renderConfig.mode === 'edges' || renderConfig.mode === 'shaded') {
+    BABYLON.VertexData.ComputeNormals(_posBuf, triIndices, _normBuf);
+    mesh.updateVerticesData(BABYLON.VertexBuffer.NormalKind, _normBuf);
+  }
+  // NOTE: 'edges' mode uses Babylon's enableEdgesRendering, which builds a
+  // SEPARATE static line geometry — it does NOT update when the mesh deforms.
+  // Refreshing it every frame would hammer the GPU (dispose+recreate buffers
+  // per frame), so we don't. Use 'wire' mode for live deformation; 'edges'
+  // is for thick-line rendering of static or near-static poses.
+
+  updatePupils();
+  if (renderConfig.minimal) updateMinimal();
+
+  // head pose drives the parent transform
+  faceRoot.rotation.x = state.headRotateX * 0.35;
+  faceRoot.rotation.y = state.headRotateY * 0.50;
+  faceRoot.rotation.z = state.headRotateZ * 0.30;
+
+  /* restore raw state — bar display, recording, etc. should see un-gained values */
+  for (let i = 0; i < CHANNEL_NAMES.length; i++) {
+    state[CHANNEL_NAMES[i]] = _stateRawSnap[CHANNEL_NAMES[i]];
+  }
+}
+
+rebuildMesh();
+rebuildPupils();
+
+/* ─── 4j. minimal feature lines overlay ─────────────────────────────────
+   v002-style precise curves for the mouth, eyes, brows, nose. Updates from
+   the same channel state as the mesh so deformations stay synchronized.
+   Toggleable via renderConfig.minimal. */
+
+const minimalMat = new BABYLON.StandardMaterial('minimalMat', scene);
+minimalMat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+minimalMat.disableLighting = true;
+minimalMat.specularColor = new BABYLON.Color3(0, 0, 0);
+
+/* v011: separate material for brow tubes so they can have a distinct color
+   from the rest of the minimal-line overlay. Same render properties otherwise. */
+const browMat = new BABYLON.StandardMaterial('browMat', scene);
+browMat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+browMat.disableLighting = true;
+browMat.specularColor = new BABYLON.Color3(0, 0, 0);
+
+const minimalGroup = new BABYLON.TransformNode('minimal', scene);
+minimalGroup.parent = faceRoot;
+
+/* sample the current mesh displacement at any (u, v) by tent-weighted
+   average of nearby vertices' _dispBuf values. Lets the overlay track
+   the deformed mesh — when the mouth pulls the chin down, nose & brow
+   anchors above also follow proportionally. */
+function sampleDispAtUV(u, v) {
+  if (!_dispBuf) return V(0, 0, 0);
+  const r2 = 0.06 * 0.06;  // UV radius for sampling
+  let totalW = 0, sx = 0, sy = 0, sz = 0;
+  for (let i = 0; i < baseUVs.length; i++) {
+    const du = baseUVs[i].u - u;
+    const dv = baseUVs[i].v - v;
+    const d2 = du*du + dv*dv;
+    if (d2 < r2) {
+      const w = 1 - Math.sqrt(d2 / r2);  // tent weight
+      totalW += w;
+      sx += _dispBuf[i].x * w;
+      sy += _dispBuf[i].y * w;
+      sz += _dispBuf[i].z * w;
+    }
+  }
+  if (totalW === 0) {
+    // fallback: nearest single vertex
+    let best = 0, bestD2 = Infinity;
+    for (let i = 0; i < baseUVs.length; i++) {
+      const du = baseUVs[i].u - u, dv = baseUVs[i].v - v;
+      const d2 = du*du + dv*dv;
+      if (d2 < bestD2) { bestD2 = d2; best = i; }
+    }
+    return V(_dispBuf[best].x, _dispBuf[best].y, _dispBuf[best].z);
+  }
+  return V(sx/totalW, sy/totalW, sz/totalW);
+}
+
+/* deformed face point: warpToFace base + current mesh displacement. */
+function deformedPoint(u, v) {
+  const base = warpToFace(u, v);
+  if (!renderConfig.overlayTracksMesh) return base;
+  const disp = sampleDispAtUV(u, v);
+  return V(base.x + disp.x, base.y + disp.y, base.z + disp.z);
+}
+
+/* smooth Catmull-Rom curve through control points, fixed sample count */
+function smoothPath(controls, samples = 18) {
+  const cp = [controls[0], ...controls, controls[controls.length-1]];
+  const out = [];
+  for (let i = 0; i < cp.length - 3; i++) {
+    const p0 = cp[i], p1 = cp[i+1], p2 = cp[i+2], p3 = cp[i+3];
+    const segs = (i === cp.length - 4) ? samples : samples - 1;
+    for (let s = 0; s <= segs; s++) {
+      const t = s / samples;
+      const t2 = t*t, t3 = t2*t;
+      out.push(V(
+        0.5 * (2*p1.x + (-p0.x + p2.x)*t + (2*p0.x - 5*p1.x + 4*p2.x - p3.x)*t2 + (-p0.x + 3*p1.x - 3*p2.x + p3.x)*t3),
+        0.5 * (2*p1.y + (-p0.y + p2.y)*t + (2*p0.y - 5*p1.y + 4*p2.y - p3.y)*t2 + (-p0.y + 3*p1.y - 3*p2.y + p3.y)*t3),
+        0.5 * (2*p1.z + (-p0.z + p2.z)*t + (2*p0.z - 5*p1.z + 4*p2.z - p3.z)*t2 + (-p0.z + 3*p1.z - 3*p2.z + p3.z)*t3)
+      ));
+    }
+  }
+  return out;
+}
+
+function makeTube(name, points, radius, instance) {
+  const r = instance ? radius : radius * renderConfig.lineThickness;
+  const opts = { path: points, radius: r, tessellation: 6, updatable: true };
+  if (instance) opts.instance = instance;
+  const tube = BABYLON.MeshBuilder.CreateTube(name, opts, scene);
+  if (!instance) {
+    tube.material = minimalMat;
+    tube.parent = minimalGroup;
+  }
+  return tube;
+}
+
+/* mouth: upper + lower lip beziers driven by the same lipTarget()
+   formula the mesh anchor uses, so they stay perfectly in sync */
+let mouthUpperMesh, mouthLowerMesh;
+
+function mouthLipPaths() {
+  const p = computeMouthParams();
+  // 5 sample points across the lip (corners + 2 peaks + center), then
+  // smooth them into a Catmull-Rom curve.
+  const upperXR = [-1.0, -0.45, 0.0, 0.45, 1.0];
+  const lowerXR = [-1.0, -0.5,  0.0, 0.5,  1.0];
+  const upper = smoothPath(upperXR.map(x => lipTarget(x, true,  p)), 18);
+  const lower = smoothPath(lowerXR.map(x => lipTarget(x, false, p)), 18);
+  return { upper, lower };
+}
+
+/* eyes: upper + lower lid arcs, driven by blink + squint + look */
+const eyeData = [
+  { side: 'L', uv: [0.30, 0.40], hw: 0.10, hh: 0.040 },
+  { side: 'R', uv: [0.70, 0.40], hw: 0.10, hh: 0.040 },
+];
+let eyeMeshes = [];
+
+function eyePath(eye, isUpper) {
+  const blink = eye.side === 'L' ? state.eyeBlinkLeft : state.eyeBlinkRight;
+  const squint = state.eyeSquint;
+  const center = deformedPoint(eye.uv[0], eye.uv[1]);  // ← tracks mesh
+  const N = 12;
+  const pts = [];
+  const squintShift = squint * 0.012;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const a = t * Math.PI;
+    const x = center.x + Math.cos(Math.PI - a) * eye.hw;
+    const baseY = center.y + (isUpper ? 1 : -1) * Math.sin(a) * eye.hh;
+    const y = baseY * (1 - blink) + center.y * blink;
+    const yWithSquint = y + (isUpper ? -squintShift : squintShift * 0.5);
+    const z = center.z + 0.018 + Math.sin(a) * 0.012;
+    pts.push(V(x, yWithSquint, z));
+  }
+  return pts;
+}
+
+/* brows: 3-point bezier per brow, driven by browInner/Outer/Down channels */
+const browData = [
+  { side: 'L', uv: [0.27, 0.27] },
+  { side: 'R', uv: [0.73, 0.27] },
+];
+let browMeshes = [];
+
+function browPath(brow) {
+  const center = deformedPoint(brow.uv[0], brow.uv[1]);  // ← tracks mesh
+  const sign = brow.side === 'L' ? -1 : 1;
+  const innerLift = state.browInnerUp * 0.085 - state.browDown * 0.05;
+  const outerLift = (state.browOuterUp >= 0 ? state.browOuterUp : 0) * 0.07 - state.browDown * 0.05;
+  const innerX = center.x + sign * (-0.10);
+  const midX   = center.x;
+  const outerX = center.x + sign * 0.10;
+  const innerY = center.y + innerLift;
+  const midY   = center.y + (innerLift + outerLift) * 0.5 + 0.005;
+  const outerY = center.y + outerLift - 0.005;
+  const z = center.z + 0.018;
+  return smoothPath([V(innerX, innerY, z), V(midX, midY, z + 0.01), V(outerX, outerY, z)], 12);
+}
+
+/* nose: simple bridge + 2 nostril arcs */
+let noseBridgeMesh = null, noseLeftMesh = null, noseRightMesh = null;
+function nosePaths() {
+  const flair = state.noseSneer * 0.025;
+  const top = deformedPoint(0.50, 0.40);     // ← tracks mesh
+  const tip = deformedPoint(0.50, 0.55);     // ← tracks mesh
+  const bridge = smoothPath([
+    V(top.x, top.y - 0.02, top.z + 0.02),
+    V(top.x - 0.005, (top.y + tip.y) * 0.5, (top.z + tip.z) * 0.5 + 0.05),
+    V(tip.x, tip.y + 0.03, tip.z + 0.05),
+  ], 14);
+  const baseY = tip.y + 0.01;
+  const leftN = smoothPath([
+    V(tip.x, baseY, tip.z + 0.05),
+    V(tip.x - 0.06 - flair, baseY - 0.03, tip.z + 0.02),
+    V(tip.x - 0.04, baseY - 0.05, tip.z + 0.005),
+    V(tip.x - 0.01, baseY - 0.02, tip.z + 0.03),
+  ], 10);
+  const rightN = smoothPath([
+    V(tip.x, baseY, tip.z + 0.05),
+    V(tip.x + 0.06 + flair, baseY - 0.03, tip.z + 0.02),
+    V(tip.x + 0.04, baseY - 0.05, tip.z + 0.005),
+    V(tip.x + 0.01, baseY - 0.02, tip.z + 0.03),
+  ], 10);
+  return { bridge, leftN, rightN };
+}
+
+/* (re)build all minimal-line tubes — used at startup AND when the
+   line-thickness slider changes (tube radius is fixed at creation). */
+function rebuildMinimalLines() {
+  if (mouthUpperMesh) { mouthUpperMesh.dispose(); mouthUpperMesh = null; }
+  if (mouthLowerMesh) { mouthLowerMesh.dispose(); mouthLowerMesh = null; }
+  for (const em of eyeMeshes) { em.upper.dispose(); em.lower.dispose(); }
+  eyeMeshes = [];
+  for (const bm of browMeshes) bm.mesh.dispose();
+  browMeshes = [];
+  if (noseBridgeMesh) { noseBridgeMesh.dispose(); noseBridgeMesh = null; }
+  if (noseLeftMesh)   { noseLeftMesh.dispose();   noseLeftMesh   = null; }
+  if (noseRightMesh)  { noseRightMesh.dispose();  noseRightMesh  = null; }
+
+  const { upper, lower } = mouthLipPaths();
+  mouthUpperMesh = makeTube('mouth_u', upper, 0.010);
+  mouthLowerMesh = makeTube('mouth_l', lower, 0.010);
+
+  for (const eye of eyeData) {
+    const u = makeTube('eye_' + eye.side + '_u', eyePath(eye, true),  0.0085);
+    const l = makeTube('eye_' + eye.side + '_l', eyePath(eye, false), 0.0085);
+    eyeMeshes.push({ eye, upper: u, lower: l });
+  }
+
+  for (const brow of browData) {
+    const m = makeTube('brow_' + brow.side, browPath(brow), 0.011);
+    m.material = browMat;  // v011: brow color is separate from line color
+    browMeshes.push({ brow, mesh: m });
+  }
+
+  const np = nosePaths();
+  noseBridgeMesh = makeTube('nose_b', np.bridge, 0.009);
+  noseLeftMesh   = makeTube('nose_l', np.leftN,  0.0085);
+  noseRightMesh  = makeTube('nose_r', np.rightN, 0.0085);
+}
+
+rebuildMinimalLines();
+
+function updateMinimal() {
+  // mouth
+  const mp = mouthLipPaths();
+  makeTube('', mp.upper, 0.010, mouthUpperMesh);
+  makeTube('', mp.lower, 0.010, mouthLowerMesh);
+  // eyes
+  for (const em of eyeMeshes) {
+    makeTube('', eyePath(em.eye, true),  0.0085, em.upper);
+    makeTube('', eyePath(em.eye, false), 0.0085, em.lower);
+  }
+  // brows
+  for (const bm of browMeshes) {
+    makeTube('', browPath(bm.brow), 0.011, bm.mesh);
+  }
+  // nose
+  const np = nosePaths();
+  makeTube('', np.bridge, 0.009,  noseBridgeMesh);
+  makeTube('', np.leftN,  0.0085, noseLeftMesh);
+  makeTube('', np.rightN, 0.0085, noseRightMesh);
+}
+
+function applyMinimalVisibility() {
+  minimalGroup.setEnabled(renderConfig.minimal);
+}
+applyMinimalVisibility();
+
+
+/* ─── 5. CHANNEL SMOOTHING ──────────────────────────────────────────────
+   Each frame, lerp state[ch] toward stateTarget[ch]. Different channels
+   have different responsiveness. Visemes snap fast; brows are slower. */
+
+const SMOOTH = {
+  default: 0.35,
+  eyeBlinkLeft: 0.55, eyeBlinkRight: 0.55,
+  // visemes need to be peppy for lip-sync
+  ...Object.fromEntries(Object.keys(VISEME_PARAMS).map(v => ['viseme_' + v, 0.45])),
+  browInnerUp: 0.18, browOuterUp: 0.18, browDown: 0.18,
+  headRotateX: 0.10, headRotateY: 0.10, headRotateZ: 0.10,
+  eyeLookH: 0.25, eyeLookV: 0.25,
+};
+
+function smoothChannels(dt) {
+  for (const ch of CHANNEL_NAMES) {
+    if (manualLock[ch]) { state[ch] = stateTarget[ch]; continue; }
+    const k = SMOOTH[ch] || SMOOTH.default;
+    const a = 1 - Math.exp(-k * dt * 30);
+    state[ch] = state[ch] + (stateTarget[ch] - state[ch]) * a;
+  }
+}
+
+/* ─── 6. AUDIO + LIVE LIP-SYNC ──────────────────────────────────────────
+   Web Audio AnalyserNode → frequency bins → estimated visemes.
+
+   Approach (lightweight formant heuristics):
+     - low-freq energy   (200-700 Hz)  → O / U / aa  (open back vowels)
+     - mid-freq energy   (700-2000 Hz) → aa / E
+     - hi-mid energy     (2000-4500)   → E / I (front vowels)
+     - high energy       (4500-9000)   → SS, FF, CH (sibilants/fricatives)
+     - overall amplitude → jawOpen + viseme intensity
+     - silence floor     → viseme_sil
+*/
+
+let audioCtx = null;
+let audioBuffer = null;
+let audioSource = null;
+let analyser = null;
+let freqData = null;
+let timeData = null;
+let isPlaying = false;
+let playStartCtxTime = 0;
+let playStartOffset = 0;
+let pausedAt = 0;
+let audioDuration = 0;
+let audioName = 'test-tone';
+
+function ensureAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+async function loadAudioFile(file) {
+  ensureAudioCtx();
+  const arr = await file.arrayBuffer();
+  audioBuffer = await audioCtx.decodeAudioData(arr);
+  audioDuration = audioBuffer.duration;
+  audioName = file.name;
+  document.getElementById('audio-name').textContent = file.name + ' · ' + audioDuration.toFixed(2) + 's';
+  document.getElementById('t-tot').textContent = formatTime(audioDuration * 1000);
+  pausedAt = 0;
+}
+
+/* simple test-tone buffer so the UI does something on first load */
+function buildTestTone() {
+  ensureAudioCtx();
+  const dur = 4, sr = audioCtx.sampleRate;
+  const buf = audioCtx.createBuffer(1, sr * dur, sr);
+  const ch = buf.getChannelData(0);
+  // Lightly modulated tone, just enough to make the FFT do *something*.
+  for (let i = 0; i < ch.length; i++) {
+    const t = i / sr;
+    const freq = 220 + Math.sin(t * 1.4) * 80;
+    ch[i] = Math.sin(2 * Math.PI * freq * t) * 0.3 * (0.6 + 0.4 * Math.sin(t * 6));
+  }
+  audioBuffer = buf;
+  audioDuration = dur;
+  document.getElementById('t-tot').textContent = formatTime(dur * 1000);
+}
+
+function startPlayback(fromOffset = 0) {
+  if (!audioBuffer) buildTestTone();
+  ensureAudioCtx();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+
+  if (audioSource) try { audioSource.stop(); } catch {}
+  audioSource = audioCtx.createBufferSource();
+  audioSource.buffer = audioBuffer;
+  audioSource.loop = !!renderConfig.loopAudio;
+
+  if (!analyser) {
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.55;
+    freqData = new Uint8Array(analyser.frequencyBinCount);
+    timeData = new Uint8Array(analyser.fftSize);
+  }
+  audioSource.connect(analyser);
+  analyser.connect(audioCtx.destination);
+  audioSource.start(0, fromOffset);
+  playStartCtxTime = audioCtx.currentTime;
+  playStartOffset = fromOffset;
+  isPlaying = true;
+  setStatus('live', 'playing · live FFT');
+  audioSource.onended = () => {
+    if (isPlaying) {
+      isPlaying = false;
+      pausedAt = 0;
+      setStatus('idle', 'idle');
+      document.getElementById('btn-play').textContent = '▶ play';
+    }
+  };
+}
+
+function stopPlayback() {
+  if (audioSource) try { audioSource.stop(); } catch {}
+  isPlaying = false;
+  pausedAt = 0;
+  setStatus('idle', 'idle');
+  document.getElementById('btn-play').textContent = '▶ play';
+}
+
+function getPlaybackTime() {
+  if (!isPlaying) return pausedAt;
+  return playStartOffset + (audioCtx.currentTime - playStartCtxTime);
+}
+
+/* compute viseme weights from frequency data this frame */
+function analyzeAudioFrame() {
+  if (!analyser) return;
+  analyser.getByteFrequencyData(freqData);
+
+  const sr = audioCtx.sampleRate;
+  const binHz = sr / analyser.fftSize;
+
+  function bandEnergy(loHz, hiHz) {
+    const lo = Math.max(0, Math.floor(loHz / binHz));
+    const hi = Math.min(freqData.length - 1, Math.ceil(hiHz / binHz));
+    let sum = 0, n = 0;
+    for (let i = lo; i <= hi; i++) { sum += freqData[i]; n++; }
+    return n > 0 ? (sum / n) / 255 : 0;
+  }
+
+  const eLow  = bandEnergy(80, 700);     // F1 vowels low
+  const eMid  = bandEnergy(700, 1800);   // F1 vowels mid
+  const eHi   = bandEnergy(1800, 3500);  // F2 front vowels
+  const eSib  = bandEnergy(4000, 9000);  // sibilants/fricatives
+  const eAir  = bandEnergy(9000, 15000); // FF / SS air
+
+  // overall RMS-ish from time-domain (cheap)
+  analyser.getByteTimeDomainData(timeData);
+  let sum = 0;
+  for (let i = 0; i < timeData.length; i++) {
+    const v = (timeData[i] - 128) / 128;
+    sum += v * v;
+  }
+  const rms = Math.sqrt(sum / timeData.length);  // 0..~0.5
+
+  const speechActive = rms > 0.012;
+
+  // reset all viseme targets toward 0 (will be overwritten below)
+  for (const v of Object.keys(VISEME_PARAMS)) stateTarget['viseme_' + v] = 0;
+
+  if (!speechActive) {
+    stateTarget.viseme_sil = 1;
+    stateTarget.jawOpen = 0;
+    return;
+  }
+
+  // amplitude → mouth open
+  const amp = Math.min(1, rms * 4.5);
+  stateTarget.jawOpen = amp * 0.7;
+
+  // Heuristic viseme allocation. Sum should not exceed ~1.2.
+  // Hi sibilance dominates: that's an SS or FF
+  if (eSib > 0.35 && eSib > eMid) {
+    stateTarget.viseme_SS = Math.min(1, eSib * 1.3);
+    stateTarget.viseme_FF = Math.min(0.6, eAir * 1.2);
+  }
+  // Front vowel: high mid-hi balance
+  else if (eHi > eLow * 1.2 && eHi > 0.25) {
+    if (eHi > eMid) {
+      stateTarget.viseme_I = Math.min(1, eHi * 1.4);
+    } else {
+      stateTarget.viseme_E = Math.min(1, eMid * 1.3);
+    }
+  }
+  // Back rounded vowel: low dominant, mid weak
+  else if (eLow > eHi * 1.3 && eLow > 0.25) {
+    if (eMid > eLow * 0.65) {
+      stateTarget.viseme_O = Math.min(1, eLow * 1.2);
+    } else {
+      stateTarget.viseme_U = Math.min(1, eLow * 1.2);
+    }
+  }
+  // Open vowel: balanced low+mid energy
+  else if (eMid > 0.2 && eLow > 0.2) {
+    stateTarget.viseme_aa = Math.min(1, (eLow + eMid) * 0.6);
+  }
+  // Default: a hint of E
+  else {
+    stateTarget.viseme_E = Math.min(0.6, amp);
+  }
+
+  // small filler of sil so things never look possessed
+  stateTarget.viseme_sil = Math.max(0, 1 - amp * 1.3);
+}
+
+/* ─── 7. IDLE MICRO-MOVEMENTS ───────────────────────────────────────────
+   Auto blinks, slight head bob, brow micro-shifts. Always layered, but
+   suppressed when user is dragging a slider for that channel. */
+
+let nextBlink = 1.5 + Math.random() * 3;
+let blinkUntil = 0;
+let elapsedSec = 0;
+
+function idleAnimate(dt) {
+  elapsedSec += dt;
+
+  const trackCh = (trackPlaying && importedTrack && importedTrack.channels) ? importedTrack.channels : null;
+  const drivenByTrack = (ch) => trackCh && trackCh[ch] && trackCh[ch].length > 0;
+
+  // blinks — only auto-blink if eyeBlink isn't being driven externally
+  if (!drivenByTrack('eyeBlinkLeft') && !drivenByTrack('eyeBlinkRight')) {
+    if (elapsedSec > nextBlink && elapsedSec > blinkUntil) {
+      blinkUntil = elapsedSec + 0.16;
+      nextBlink = elapsedSec + 2.5 + Math.random() * 4.5;
+    }
+    if (elapsedSec < blinkUntil) {
+      const phase = (blinkUntil - elapsedSec) / 0.16;
+      const v = 1 - Math.abs(phase - 0.5) * 2;
+      if (!manualLock.eyeBlinkLeft)  stateTarget.eyeBlinkLeft  = v;
+      if (!manualLock.eyeBlinkRight) stateTarget.eyeBlinkRight = v;
+    } else {
+      if (!manualLock.eyeBlinkLeft  && stateTarget.eyeBlinkLeft  > 0 && stateTarget.eyeBlinkLeft  < 0.05) stateTarget.eyeBlinkLeft  = 0;
+      if (!manualLock.eyeBlinkRight && stateTarget.eyeBlinkRight > 0 && stateTarget.eyeBlinkRight < 0.05) stateTarget.eyeBlinkRight = 0;
+    }
+  }
+
+  // slow head bob — skip if track drives it
+  if (!manualLock.headRotateY && !drivenByTrack('headRotateY'))
+    stateTarget.headRotateY = Math.sin(elapsedSec * 0.31) * 0.08 + Math.sin(elapsedSec * 0.13 + 1.3) * 0.05;
+  if (!manualLock.headRotateX && !drivenByTrack('headRotateX'))
+    stateTarget.headRotateX = Math.sin(elapsedSec * 0.21 + 0.5) * 0.05;
+  if (!manualLock.headRotateZ && !drivenByTrack('headRotateZ'))
+    stateTarget.headRotateZ = Math.sin(elapsedSec * 0.17 + 2.1) * 0.04;
+
+  // eye darts — occasional saccade
+  if (Math.random() < 0.005) {
+    if (!manualLock.eyeLookH && !drivenByTrack('eyeLookH')) stateTarget.eyeLookH = (Math.random() - 0.5) * 1.2;
+    if (!manualLock.eyeLookV && !drivenByTrack('eyeLookV')) stateTarget.eyeLookV = (Math.random() - 0.5) * 0.8;
+  }
+}
+
+/* ─── 8. RECORDING / EXPORT ─────────────────────────────────────────────
+   Sample all channel state[] at fixed rate. Compress to event lists.
+   Format: { channels: { name: [[t_ms, value], ...] } }
+*/
+
+let recording = false;
+let recordStartMs = 0;
+let captureBuffer = [];   // [{t, snapshot}]
+const captureFps = 60;
+let lastCaptureMs = -Infinity;
+
+function startRecording() {
+  recording = true;
+  captureBuffer = [];
+  recordStartMs = performance.now();
+  setStatus('rec', 'recording');
+  document.getElementById('btn-record').classList.add('recording');
+  document.getElementById('btn-record').textContent = '■ stop rec';
+  document.getElementById('btn-export').disabled = true;
+}
+
+function stopRecording() {
+  recording = false;
+  document.getElementById('btn-record').classList.remove('recording');
+  document.getElementById('btn-record').textContent = '● record';
+  document.getElementById('btn-export').disabled = captureBuffer.length === 0;
+  document.getElementById('track-info').textContent =
+    captureBuffer.length + ' samples · ' + (captureBuffer.length ? (captureBuffer[captureBuffer.length-1].t/1000).toFixed(2) + 's' : '0s');
+  setStatus(isPlaying ? 'live' : 'idle', isPlaying ? 'playing · live FFT' : 'idle');
+}
+
+function captureFrame() {
+  if (!recording) return;
+  const now = performance.now() - recordStartMs;
+  if (now - lastCaptureMs < 1000 / captureFps) return;
+  lastCaptureMs = now;
+  const snap = {};
+  for (const ch of CHANNEL_NAMES) snap[ch] = +state[ch].toFixed(3);
+  captureBuffer.push({ t: Math.round(now), snap });
+}
+
+/* compress raw samples → event list per channel. Keeps only events where
+   linear interpolation from the last kept event to the next would fail to
+   approximate intermediate samples within tolerance. MIDI-style sparse
+   keyframes with implicit linear ramps. */
+function compressTrackChannel(samples, ch, tol) {
+  if (samples.length === 0) return [];
+  if (samples.length === 1) return [[samples[0].t, samples[0].snap[ch]]];
+
+  const events = [[samples[0].t, samples[0].snap[ch]]];
+  let anchor = 0;  // index of last KEPT sample
+
+  for (let i = 1; i < samples.length; i++) {
+    const t0 = samples[anchor].t, v0 = samples[anchor].snap[ch];
+    const ti = samples[i].t,      vi = samples[i].snap[ch];
+    let ok = true;
+    for (let j = anchor + 1; j < i; j++) {
+      const tj = samples[j].t, vj = samples[j].snap[ch];
+      const interp = v0 + (vi - v0) * (tj - t0) / (ti - t0);
+      if (Math.abs(interp - vj) > tol) { ok = false; break; }
+    }
+    if (!ok) {
+      // emit i-1 (the last good point), restart line from there
+      const prev = samples[i-1];
+      events.push([prev.t, prev.snap[ch]]);
+      anchor = i - 1;
+    }
+  }
+  // always emit the final sample
+  const last = samples[samples.length - 1];
+  if (events[events.length-1][0] !== last.t) events.push([last.t, last.snap[ch]]);
+  return events;
+}
+
+function compressTrack(samples, tol = 0.012) {
+  const out = {};
+  for (const ch of CHANNEL_NAMES) out[ch] = compressTrackChannel(samples, ch, tol);
+  return out;
+}
+
+function exportTrack() {
+  if (captureBuffer.length === 0) return;
+  const compressed = compressTrack(captureBuffer);
+  const totalEvents = Object.values(compressed).reduce((s, ev) => s + ev.length, 0);
+  const payload = {
+    format: 'wireface-v1',
+    duration_ms: captureBuffer[captureBuffer.length - 1].t,
+    audio_ref: audioName,
+    fps_capture: captureFps,
+    interpolation: 'linear',
+    channels: compressed,
+    metadata: {
+      created: new Date().toISOString(),
+      source: 'live_audio_fft',
+      total_events: totalEvents,
+      total_samples: captureBuffer.length,
+      compression_ratio: (totalEvents / (captureBuffer.length * CHANNEL_NAMES.length)).toFixed(3),
+      channel_definitions: Object.fromEntries(
+        CHANNEL_NAMES.map(n => [n, { group: CHANNELS[n].group, range: CHANNELS[n].range }])
+      ),
+    },
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (audioName.replace(/\.[^.]+$/, '') || 'wireface') + '.track.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ─── playback of imported tracks ─────────────────────────────────────── */
+let importedTrack = null;
+let trackPlayStart = 0;
+let trackPlaying = false;
+
+/* ─── Kokoro / HeadTTS / Oculus15 phoneme-aligned format ───────────────
+   { audio, duration, phoneme_alphabet: "Oculus15",
+     visemes: [{v, t, d}], words: [...], emotions: [{e, t, d}] }
+   Convert to wireface-v1 channel events. Each viseme gets a square pulse
+   (anchor-0, on, hold, off) so linear interp produces clean transitions. */
+
+const VISEMES_OCULUS = ['sil','PP','FF','TH','DD','kk','CH','SS','nn','RR','aa','E','I','O','U'];
+
+const EMO_DELTAS = {
+  neutral:  {},
+  happy:    { browOuterUp:  0.40, mouthSmile:  0.60, eyeSquint: 0.20 },
+  sad:      { browInnerUp:  0.60, browDown:    0.15, mouthSmile: -0.40 },
+  angry:    { browDown:     0.65, browOuterUp: -0.35, mouthSmile: -0.30, noseSneer: 0.40 },
+  fear:     { browInnerUp:  0.65, browOuterUp:  0.55, mouthSmile: -0.20 },
+  surprise: { browInnerUp:  0.50, browOuterUp:  0.75, jawOpen:    0.30 },
+  disgust:  { browDown:     0.30, noseSneer:    0.65, mouthSmile: -0.20 },
+};
+
+function convertKokoroToWireface(k) {
+  const channels = {};
+  // initialize every viseme channel with leading 0 (or 1 for sil)
+  for (const v of VISEMES_OCULUS) channels['viseme_' + v] = [[0, v === 'sil' ? 1 : 0]];
+
+  // group viseme events into ranges, merging consecutive same-viseme entries
+  const ranges = {};  // { 'TH': [[startMs, endMs], ...] }
+  for (const ev of (k.visemes || [])) {
+    const start = Math.round(ev.t * 1000);
+    const end   = Math.round((ev.t + ev.d) * 1000);
+    if (!ranges[ev.v]) ranges[ev.v] = [];
+    const last = ranges[ev.v][ranges[ev.v].length - 1];
+    if (last && last[1] === start) last[1] = end;
+    else ranges[ev.v].push([start, end]);
+  }
+
+  // emit square pulses per range
+  for (const v of VISEMES_OCULUS) {
+    if (!ranges[v]) continue;
+    const ch = 'viseme_' + v;
+    for (const [start, end] of ranges[v]) {
+      // anchor "still off" at start-1 if we were at 0 before
+      const lastEv = channels[ch][channels[ch].length - 1];
+      if (start > 1 && lastEv[1] !== 1) channels[ch].push([start - 1, lastEv[1]]);
+      channels[ch].push([start, 1]);
+      if (end - start > 2) channels[ch].push([end - 1, 1]);   // hold
+      channels[ch].push([end, 0]);
+    }
+  }
+
+  // emotions → brow / smile / sneer baselines (held, smooth ramps)
+  const allEmoCh = new Set();
+  Object.values(EMO_DELTAS).forEach(d => Object.keys(d).forEach(k => allEmoCh.add(k)));
+  for (const ch of allEmoCh) channels[ch] = [[0, 0]];
+  for (const ev of (k.emotions || [])) {
+    const start = Math.round(ev.t * 1000);
+    const settings = EMO_DELTAS[ev.e] || {};
+    for (const ch of allEmoCh) {
+      const target = settings[ch] || 0;
+      const last = channels[ch][channels[ch].length - 1];
+      if (last[1] !== target) channels[ch].push([start, target]);
+    }
+  }
+  // return all emotion channels to 0 at end
+  if ((k.emotions || []).length) {
+    const lastEmo = k.emotions[k.emotions.length - 1];
+    const endMs = Math.round((lastEmo.t + lastEmo.d) * 1000);
+    for (const ch of allEmoCh) {
+      const last = channels[ch][channels[ch].length - 1];
+      if (last[1] !== 0) channels[ch].push([endMs, 0]);
+    }
+  }
+
+  // count events for metadata
+  let totalEvents = 0;
+  for (const c in channels) totalEvents += channels[c].length;
+
+  return {
+    format: 'wireface-v1',
+    duration_ms: Math.round(k.duration * 1000),
+    audio_ref: k.audio || null,
+    fps_capture: 0,
+    interpolation: 'linear',
+    channels: channels,
+    metadata: {
+      created: new Date().toISOString(),
+      source: 'phoneme_alignment',
+      converted_from: 'oculus15_kokoro',
+      voice: k.voice,
+      engine: k.engine,
+      language: k.language,
+      total_events: totalEvents,
+      viseme_count: (k.visemes || []).length,
+      words: k.words || null,  // preserve for future subtitle support
+    },
+  };
+}
+
+async function importTrack(file) {
+  const text = await file.text();
+  const data = JSON.parse(text);
+
+  let track;
+  let formatLabel;
+  if (data.format === 'wireface-v1') {
+    track = data;
+    formatLabel = 'wireface-v1';
+  } else if (data.phoneme_alphabet === 'Oculus15' || (data.visemes && Array.isArray(data.visemes) && data.visemes[0] && 'v' in data.visemes[0])) {
+    track = convertKokoroToWireface(data);
+    formatLabel = 'kokoro/oculus15';
+  } else {
+    throw new Error('unrecognized JSON format — expected wireface-v1 or Oculus15 viseme track');
+  }
+
+  importedTrack = track;
+  document.getElementById('track-info').textContent =
+    formatLabel + ' · ' + (importedTrack.duration_ms/1000).toFixed(2) + 's · ' +
+    Object.keys(importedTrack.channels || {}).length + ' channels';
+  document.getElementById('t-tot').textContent = formatTime(importedTrack.duration_ms);
+}
+
+function playTrack() {
+  if (!importedTrack) return;
+  trackPlaying = true;
+  trackPlayStart = performance.now();
+  setStatus('live', 'playing track');
+}
+
+function evalTrack(tMs) {
+  if (!importedTrack || !importedTrack.channels) return;
+  for (const ch in importedTrack.channels) {
+    if (!(ch in stateTarget)) continue;
+    if (manualLock[ch]) continue;
+    const events = importedTrack.channels[ch];
+    if (!events.length) continue;
+    if (tMs <= events[0][0]) { stateTarget[ch] = events[0][1]; continue; }
+    if (tMs >= events[events.length-1][0]) { stateTarget[ch] = events[events.length-1][1]; continue; }
+    // binary search for surrounding events
+    let lo = 0, hi = events.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (events[mid][0] <= tMs) lo = mid; else hi = mid;
+    }
+    const [t0, v0] = events[lo], [t1, v1] = events[hi];
+    const a = (tMs - t0) / (t1 - t0);
+    stateTarget[ch] = v0 + (v1 - v0) * a;
+  }
+}
+
+/* ─── 9. UI BINDINGS ───────────────────────────────────────────────────── */
+
+const groupOrder = ['mouth', 'jaw', 'eyes', 'brows', 'nose', 'head'];
+const groupLabels = { mouth: 'mouth · oculus visemes', jaw: 'jaw + lips', eyes: 'eyes', brows: 'brows', nose: 'nose', head: 'head pose' };
+
+const chanList = document.getElementById('chan-list');
+const chanRefs = {};
+
+for (const g of groupOrder) {
+  const grp = document.createElement('div');
+  grp.className = 'chan-group';
+  const lbl = document.createElement('div');
+  lbl.className = 'label';
+  lbl.textContent = groupLabels[g];
+  grp.appendChild(lbl);
+  for (const ch of CHANNEL_NAMES) {
+    if (CHANNELS[ch].group !== g) continue;
+    const row = document.createElement('div');
+    row.className = 'chan';
+    const name = document.createElement('div');
+    name.className = 'chan-name';
+    name.textContent = ch.replace('viseme_', 'vis·').replace('Rotate', '·');
+    name.title = ch;
+    const bar = document.createElement('div');
+    bar.className = 'chan-bar';
+    const fill = document.createElement('div');
+    fill.className = 'fill';
+    const live = document.createElement('div');
+    live.className = 'live';
+    bar.appendChild(fill);
+    bar.appendChild(live);
+    const val = document.createElement('div');
+    val.className = 'chan-val';
+    val.textContent = '0.00';
+
+    /* per-channel gain knob */
+    const knob = document.createElement('div');
+    knob.className = 'knob';
+    knob.title = ch + ' gain — drag vertically · double-click to reset';
+    const marker = document.createElement('div');
+    marker.className = 'knob-marker';
+    knob.appendChild(marker);
+
+    row.appendChild(name);
+    row.appendChild(bar);
+    row.appendChild(val);
+    row.appendChild(knob);
+    grp.appendChild(row);
+    chanRefs[ch] = { fill, val, bar, knob };
+
+    /* knob drag handler — vertical drag changes the gain slider in [-2, +2].
+       Gain multiplier is 2^k so knob center is unity, full left ≈ 1/4×, full
+       right ≈ 4×. Double-click resets to 0 (no gain). */
+    channelGains[ch] = 1.0;
+    channelGainSliders[ch] = 0;
+    let knobDragging = false, knobStartY = 0, knobStartK = 0;
+    function applyKnob(ch, k) {
+      k = Math.max(-2, Math.min(2, k));
+      channelGainSliders[ch] = k;
+      channelGains[ch] = Math.pow(2, k);
+      marker.style.transform = `rotate(${k * 67.5}deg)`;
+      knob.classList.toggle('gained', Math.abs(k) > 0.01);
+    }
+    knob.addEventListener('pointerdown', e => {
+      knobDragging = true; knobStartY = e.clientY; knobStartK = channelGainSliders[ch];
+      knob.setPointerCapture(e.pointerId); e.preventDefault();
+    });
+    knob.addEventListener('pointermove', e => {
+      if (!knobDragging) return;
+      const dy = knobStartY - e.clientY;       // up = positive
+      applyKnob(ch, knobStartK + dy * 0.02);   // 200px drag = full range
+    });
+    knob.addEventListener('pointerup', () => { knobDragging = false; });
+    knob.addEventListener('dblclick', () => applyKnob(ch, 0));
+    chanRefs[ch].applyKnob = applyKnob;
+
+    /* drag-to-set */
+    const range = CHANNELS[ch].range;
+    let dragging = false;
+    function setFromX(clientX) {
+      const r = bar.getBoundingClientRect();
+      const t = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+      const v = range[0] + (range[1] - range[0]) * t;
+      stateTarget[ch] = v;
+      state[ch] = v;
+      manualLock[ch] = true;
+    }
+    bar.addEventListener('pointerdown', e => {
+      dragging = true;
+      bar.setPointerCapture(e.pointerId);
+      setFromX(e.clientX);
+    });
+    bar.addEventListener('pointermove', e => {
+      if (dragging) setFromX(e.clientX);
+    });
+    bar.addEventListener('pointerup', e => {
+      dragging = false;
+      // unlock after a moment so audio analysis resumes
+      setTimeout(() => { manualLock[ch] = false; }, 1200);
+    });
+  }
+  chanList.appendChild(grp);
+}
+
+document.getElementById('ch-count').textContent = String(CHANNEL_NAMES.length).padStart(2, '0');
+document.getElementById('coord-ch').textContent = String(CHANNEL_NAMES.length).padStart(2, '0');
+
+/* moods — preset weight sets */
+const MOODS = {
+  neutral: { browInnerUp: 0, browOuterUp: 0, browDown: 0, mouthSmile: 0, eyeSquint: 0 },
+  happy:   { browOuterUp: 0.4, mouthSmile: 0.7, eyeSquint: 0.25 },
+  sad:     { browInnerUp: 0.7, browDown: 0.2, mouthSmile: -0.5, eyeBlinkLeft: 0.15, eyeBlinkRight: 0.15 },
+  angry:   { browInnerUp: 0, browOuterUp: -0.4, browDown: 0.7, mouthSmile: -0.4, noseSneer: 0.5, eyeSquint: 0.4 },
+  fear:    { browInnerUp: 0.7, browOuterUp: 0.5, mouthSmile: -0.3, eyeBlinkLeft: -0.2, eyeBlinkRight: -0.2 },
+  surprise:{ browInnerUp: 0.6, browOuterUp: 0.8, jawOpen: 0.5, mouthSmile: 0 },
+  sleep:   { eyeBlinkLeft: 1, eyeBlinkRight: 1, browDown: 0.3, mouthSmile: 0 },
+};
+
+/* channels driven by mood blend (audio drives visemes & jawOpen separately) */
+const MOOD_CHANNELS = ['browInnerUp', 'browOuterUp', 'browDown', 'mouthSmile',
+                       'eyeSquint', 'noseSneer', 'eyeBlinkLeft', 'eyeBlinkRight'];
+
+/* per-frame mood crossfade — lerps moodCurrentWeights → moodTargetWeights
+   over moodTransitionTime, then computes effective stateTarget for each
+   mood-affected channel as the weighted sum across all moods. */
+function updateMoodBlend(dt) {
+  const T = Math.max(0.05, renderConfig.moodTransitionTime);
+  const halflife = T / 4;                       // ~95% reached in T seconds
+  const a = 1 - Math.pow(0.5, dt / halflife);
+  for (const m of MOOD_NAMES) {
+    moodCurrentWeights[m] += (moodTargetWeights[m] - moodCurrentWeights[m]) * a;
+  }
+  for (const ch of MOOD_CHANNELS) {
+    let target = 0;
+    for (const m of MOOD_NAMES) {
+      target += (MOODS[m][ch] || 0) * moodCurrentWeights[m];
+    }
+    stateTarget[ch] = target;
+  }
+}
+
+/* mood click → set target weights (current weights crossfade in updateMoodBlend) */
+let activeMood = 'neutral';
+document.querySelectorAll('[data-mood]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const m = btn.dataset.mood;
+    if (!MOODS[m]) return;
+    activeMood = m;
+    for (const k of MOOD_NAMES) moodTargetWeights[k] = (k === m) ? 1 : 0;
+    document.querySelectorAll('[data-mood]').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+  });
+});
+
+/* views */
+const VIEWS = {
+  front:   { alpha: -Math.PI/2, beta: Math.PI/2,        radius: 4.4 },
+  'three-q':{ alpha: -Math.PI/2 - 0.6, beta: Math.PI/2 - 0.15, radius: 4.0 },
+  profile: { alpha: 0,           beta: Math.PI/2,        radius: 4.6 },
+  orbit:   null,
+};
+let orbiting = false;
+document.querySelectorAll('[data-view]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const v = VIEWS[btn.dataset.view];
+    if (v) {
+      orbiting = false;
+      animateCamera(v.alpha, v.beta, v.radius);
+    } else {
+      orbiting = true;
+    }
+  });
+});
+
+function animateCamera(targetAlpha, targetBeta, targetRadius, durMs = 800) {
+  const startAlpha = camera.alpha, startBeta = camera.beta, startRadius = camera.radius;
+  const t0 = performance.now();
+  function step() {
+    const t = Math.min(1, (performance.now() - t0) / durMs);
+    const e = t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2) / 2;  // easeInOutQuad
+    camera.alpha  = startAlpha + (targetAlpha - startAlpha) * e;
+    camera.beta   = startBeta  + (targetBeta - startBeta) * e;
+    camera.radius = startRadius + (targetRadius - startRadius) * e;
+    if (t < 1) requestAnimationFrame(step);
+  }
+  step();
+}
+
+/* ─── render config panel ───────────────────────────────────────────── */
+function setRcfgVal(key, val) {
+  const def = document.querySelector(`[data-rcfg="${key}"]`);
+  if (!def) return;
+  const min = parseFloat(def.dataset.min);
+  const max = parseFloat(def.dataset.max);
+  const step = parseFloat(def.dataset.step) || 0.01;
+  let v = Math.max(min, Math.min(max, val));
+  v = Math.round(v / step) * step;
+  // for integer-step (cols/rows), keep odd if step is 2
+  if (step === 2) v = Math.round(v); if (v % 2 === 0 && step === 2) v += 1;
+  renderConfig[key] = v;
+  // update fill bar
+  const fill = def.querySelector('.fill');
+  fill.style.width = ((v - min) / (max - min) * 100) + '%';
+  // update value label
+  const lbl = document.querySelector(`[data-rcfg-val="${key}"]`);
+  if (lbl) lbl.textContent = (step >= 1) ? String(Math.round(v)) : v.toFixed(2);
+  // side-effects
+  if (key === 'meshCols' || key === 'meshRows' || key === 'eyeDepth' || key === 'mouthHoleSize') rebuildMesh();
+  if (key === 'lineThickness') {
+    rebuildMinimalLines();
+    // edges renderer width is mutable; just nudge it without dispose/recreate
+    if (mesh && mesh._edgesRenderer) mesh.edgesWidth = 4 * renderConfig.lineThickness;
+  }
+  // re-baseline anchor rings when lip-shape params change so the
+  // (target - baseline) delta the anchor uses stays consistent with the
+  // user's intent.
+  if (key === 'lipVertAmp' || key === 'lipPressForce') {
+    if (typeof identifyAnchorRings === 'function') identifyAnchorRings();
+  }
+  // v011: iris size requires recreating the iris discs at the new radius
+  if (key === 'irisSize') {
+    if (typeof rebuildPupils === 'function') rebuildPupils();
+  }
+  // v011: when depth fade returns to ~0, force one repaint to flat base color
+  if (key === 'depthFade' && renderConfig.depthFade < 0.001) {
+    _dirtyBaseColor = true;
+  }
+}
+
+/* color pickers — line + pupil + v011: base / fade / iris / brow */
+function applyLineColor(hex) {
+  renderConfig.lineColor = hex;
+  if (typeof minimalMat !== 'undefined' && minimalMat) {
+    minimalMat.emissiveColor = BABYLON.Color3.FromHexString(hex);
+  }
+  const lbl = document.getElementById('color-line-val');
+  if (lbl) lbl.textContent = hex.replace('#', '').toUpperCase().slice(0, 3);
+}
+function applyPupilColor(hex) {
+  renderConfig.pupilColor = hex;
+  if (typeof pupilMat !== 'undefined' && pupilMat) {
+    pupilMat.emissiveColor = BABYLON.Color3.FromHexString(hex);
+  }
+  const lbl = document.getElementById('color-pupil-val');
+  if (lbl) lbl.textContent = hex.replace('#', '').toUpperCase().slice(0, 3);
+}
+function applyBaseColor(hex) {
+  renderConfig.baseColor = hex;
+  _baseRGB = hex2rgb(hex);
+  _dirtyBaseColor = true;
+  // sync emissive on materials so vertex-color * emissive doesn't darken
+  // unexpectedly when the picker is at non-white. With useVertexColor on,
+  // shaded modes multiply; we want the picker to be the dominant signal.
+  if (wireMat) wireMat.emissiveColor = new BABYLON.Color3(_baseRGB[0], _baseRGB[1], _baseRGB[2]);
+  if (mesh && mesh._edgesRenderer) mesh.edgesColor = new BABYLON.Color4(_baseRGB[0], _baseRGB[1], _baseRGB[2], 1);
+  const lbl = document.getElementById('color-base-val');
+  if (lbl) lbl.textContent = hex.replace('#', '').toUpperCase().slice(0, 3);
+}
+function applyFadeColor(hex) {
+  renderConfig.fadeColor = hex;
+  _fadeRGB = hex2rgb(hex);
+  _dirtyBaseColor = true;
+  const lbl = document.getElementById('color-fade-val');
+  if (lbl) lbl.textContent = hex.replace('#', '').toUpperCase().slice(0, 3);
+}
+function applyIrisColor(hex) {
+  renderConfig.irisColor = hex;
+  if (typeof irisMat !== 'undefined' && irisMat) {
+    irisMat.emissiveColor = BABYLON.Color3.FromHexString(hex);
+  }
+  const lbl = document.getElementById('color-iris-val');
+  if (lbl) lbl.textContent = hex.replace('#', '').toUpperCase().slice(0, 3);
+}
+function applyBrowColor(hex) {
+  renderConfig.browColor = hex;
+  if (typeof browMat !== 'undefined' && browMat) {
+    browMat.emissiveColor = BABYLON.Color3.FromHexString(hex);
+  }
+  const lbl = document.getElementById('color-brow-val');
+  if (lbl) lbl.textContent = hex.replace('#', '').toUpperCase().slice(0, 3);
+}
+{
+  const wires = [
+    ['color-line',  'lineColor',  applyLineColor],
+    ['color-pupil', 'pupilColor', applyPupilColor],
+    ['color-base',  'baseColor',  applyBaseColor],
+    ['color-fade',  'fadeColor',  applyFadeColor],
+    ['color-iris',  'irisColor',  applyIrisColor],
+    ['color-brow',  'browColor',  applyBrowColor],
+  ];
+  for (const [id, key, fn] of wires) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.value = renderConfig[key];
+    el.addEventListener('input', () => fn(el.value));
+    fn(el.value);
+  }
+}
+
+document.querySelectorAll('[data-rcfg]').forEach(bar => {
+  const key = bar.dataset.rcfg;
+  // initialize bar fill from current renderConfig value
+  setRcfgVal(key, renderConfig[key]);
+
+  let dragging = false;
+  function setFromX(clientX) {
+    const r = bar.getBoundingClientRect();
+    const t = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+    const min = parseFloat(bar.dataset.min);
+    const max = parseFloat(bar.dataset.max);
+    setRcfgVal(key, min + (max - min) * t);
+  }
+  bar.addEventListener('pointerdown', e => { dragging = true; bar.setPointerCapture(e.pointerId); setFromX(e.clientX); });
+  bar.addEventListener('pointermove', e => { if (dragging) setFromX(e.clientX); });
+  bar.addEventListener('pointerup',   e => { dragging = false; });
+});
+
+document.querySelectorAll('[data-mode]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-mode]').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    renderConfig.mode = btn.dataset.mode;
+    applyRenderMode();
+  });
+});
+
+document.querySelectorAll('[data-toggle]').forEach(t => {
+  const key = t.dataset.toggle;
+  // sync initial visual state from renderConfig
+  if (renderConfig[key]) t.classList.add('on'); else t.classList.remove('on');
+
+  t.addEventListener('click', () => {
+    renderConfig[key] = !renderConfig[key];
+    t.classList.toggle('on', renderConfig[key]);
+    switch (key) {
+      case 'pupils':      rebuildPupils(); break;
+      case 'glow':        glow.intensity = renderConfig.glow ? 0.85 : 0; break;
+      case 'fragment':    rebuildMesh(); break;
+      case 'mouthHole':   rebuildMesh(); break;
+      case 'eyeHoles':    rebuildMesh(); break;
+      case 'flipFace':    applyFaceFlip(); break;
+      case 'meshVisible': applyMeshVisibility(); break;
+      case 'minimal':     applyMinimalVisibility(); break;
+      case 'mouthAnchor': /* takes effect next frame */ break;
+      case 'eyeAnchor':   /* takes effect next frame */ break;
+      case 'overlayTracksMesh': /* takes effect next frame */ break;
+      case 'loopAudio':
+        if (audioSource) audioSource.loop = !!renderConfig.loopAudio;
+        break;
+    }
+  });
+});
+
+/* file inputs */
+document.getElementById('audio-file').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  await loadAudioFile(f);
+});
+
+document.getElementById('json-file').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  await importTrack(f);
+});
+
+/* ─── 9b. PRESET SYSTEM ────────────────────────────────────────────────────
+   localStorage-backed snapshots of the entire renderer state. Each preset
+   captures: renderConfig, channelGains, current mood, audio filename hint,
+   line/pupil colors. Audio files themselves cannot be persisted across
+   sessions (browser security blocks programmatic file access), but the
+   filename is remembered so the user can re-load the matching audio. */
+
+const PRESET_INDEX_KEY = 'wireface_preset_index';
+const PRESET_KEY = id => 'wireface_preset_' + id;
+
+function shortGuid() {
+  // 6-char base36 — collision-resistant enough for personal use
+  return Math.floor(Math.random() * 0x7fffffff).toString(36).slice(0, 6);
+}
+
+function readPresetIndex() {
+  try { return JSON.parse(localStorage.getItem(PRESET_INDEX_KEY) || '[]'); }
+  catch (_) { return []; }
+}
+function writePresetIndex(arr) {
+  localStorage.setItem(PRESET_INDEX_KEY, JSON.stringify(arr));
+}
+
+function snapshotPreset() {
+  return {
+    version: 'wireface-v010',
+    createdAt: new Date().toISOString(),
+    renderConfig: { ...renderConfig },
+    channelGains: { ...channelGains },
+    channelGainSliders: { ...channelGainSliders },
+    activeMood,
+    moodTargetWeights: { ...moodTargetWeights },
+    audioName,
+    lineColor: renderConfig.lineColor,
+    pupilColor: renderConfig.pupilColor,
+  };
+}
+
+function applyPreset(p) {
+  if (!p || !p.renderConfig) return;
+  // Apply renderConfig values via setRcfgVal so UI bars update + side-effects fire.
+  for (const k of Object.keys(p.renderConfig)) {
+    if (typeof renderConfig[k] === 'undefined') { renderConfig[k] = p.renderConfig[k]; continue; }
+    if (typeof p.renderConfig[k] === 'number') {
+      const slider = document.querySelector(`[data-rcfg="${k}"]`);
+      if (slider) setRcfgVal(k, p.renderConfig[k]);
+      else renderConfig[k] = p.renderConfig[k];
+    } else {
+      renderConfig[k] = p.renderConfig[k];
+    }
+  }
+  // toggles
+  document.querySelectorAll('[data-toggle]').forEach(t => {
+    const k = t.dataset.toggle;
+    if (renderConfig[k]) t.classList.add('on'); else t.classList.remove('on');
+  });
+  // render mode
+  document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === renderConfig.mode));
+  applyRenderMode();
+  applyMeshVisibility(); applyMinimalVisibility();
+  // colors
+  if (p.lineColor) {
+    const lc = document.getElementById('color-line'); if (lc) lc.value = p.lineColor;
+    applyLineColor(p.lineColor);
+  }
+  if (p.pupilColor) {
+    const pc = document.getElementById('color-pupil'); if (pc) pc.value = p.pupilColor;
+    applyPupilColor(p.pupilColor);
+  }
+  // v011 colors
+  if (p.renderConfig && p.renderConfig.baseColor) {
+    const el = document.getElementById('color-base'); if (el) el.value = p.renderConfig.baseColor;
+    applyBaseColor(p.renderConfig.baseColor);
+  }
+  if (p.renderConfig && p.renderConfig.fadeColor) {
+    const el = document.getElementById('color-fade'); if (el) el.value = p.renderConfig.fadeColor;
+    applyFadeColor(p.renderConfig.fadeColor);
+  }
+  if (p.renderConfig && p.renderConfig.irisColor) {
+    const el = document.getElementById('color-iris'); if (el) el.value = p.renderConfig.irisColor;
+    applyIrisColor(p.renderConfig.irisColor);
+  }
+  if (p.renderConfig && p.renderConfig.browColor) {
+    const el = document.getElementById('color-brow'); if (el) el.value = p.renderConfig.browColor;
+    applyBrowColor(p.renderConfig.browColor);
+  }
+  // channel gains (knobs)
+  if (p.channelGainSliders) {
+    for (const ch of CHANNEL_NAMES) {
+      const k = p.channelGainSliders[ch] || 0;
+      if (chanRefs[ch] && chanRefs[ch].applyKnob) chanRefs[ch].applyKnob(ch, k);
+    }
+  }
+  // mood
+  if (p.activeMood && MOODS[p.activeMood]) {
+    activeMood = p.activeMood;
+    for (const k of MOOD_NAMES) moodTargetWeights[k] = (k === activeMood) ? 1 : 0;
+    document.querySelectorAll('[data-mood]').forEach(b => b.classList.toggle('on', b.dataset.mood === activeMood));
+  }
+  // audio name hint
+  if (p.audioName && p.audioName !== audioName) {
+    const t = document.getElementById('audio-name');
+    if (t) t.textContent = p.audioName + ' (re-load to play)';
+  }
+}
+
+function refreshPresetList() {
+  const list = document.getElementById('preset-list');
+  if (!list) return;
+  const idx = readPresetIndex();
+  list.innerHTML = '';
+  document.getElementById('btn-preset-export-all').disabled = idx.length === 0;
+  for (const entry of idx) {
+    const item = document.createElement('div');
+    item.className = 'preset-item';
+    item.title = 'click row to load · ↓ download · × delete';
+    const name = document.createElement('div');
+    name.className = 'pname';
+    name.textContent = entry.name;
+    const dl = document.createElement('div');
+    dl.className = 'picon'; dl.textContent = '↓'; dl.title = 'download';
+    const del = document.createElement('div');
+    del.className = 'picon del'; del.textContent = '×'; del.title = 'delete';
+    item.appendChild(name); item.appendChild(dl); item.appendChild(del);
+    list.appendChild(item);
+
+    name.addEventListener('click', () => {
+      const raw = localStorage.getItem(PRESET_KEY(entry.id));
+      if (!raw) return;
+      try { applyPreset(JSON.parse(raw)); } catch (e) { console.warn('preset load failed', e); }
+    });
+    dl.addEventListener('click', e => {
+      e.stopPropagation();
+      const raw = localStorage.getItem(PRESET_KEY(entry.id));
+      if (!raw) return;
+      const blob = new Blob([raw], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `wireface_${entry.name}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+    del.addEventListener('click', e => {
+      e.stopPropagation();
+      localStorage.removeItem(PRESET_KEY(entry.id));
+      writePresetIndex(idx.filter(x => x.id !== entry.id));
+      refreshPresetList();
+    });
+  }
+}
+
+document.getElementById('btn-preset-save').addEventListener('click', () => {
+  const id = shortGuid();
+  const name = (audioName && audioName !== 'test-tone' ? audioName.split('.')[0].slice(0, 12) : 'preset') + '_' + id;
+  const snap = snapshotPreset();
+  snap.id = id; snap.name = name;
+  localStorage.setItem(PRESET_KEY(id), JSON.stringify(snap));
+  const idx = readPresetIndex();
+  idx.unshift({ id, name, createdAt: snap.createdAt });
+  writePresetIndex(idx);
+  refreshPresetList();
+});
+
+document.getElementById('btn-preset-export-all').addEventListener('click', () => {
+  const idx = readPresetIndex();
+  const all = idx.map(e => {
+    try { return JSON.parse(localStorage.getItem(PRESET_KEY(e.id))); }
+    catch (_) { return null; }
+  }).filter(Boolean);
+  const blob = new Blob([JSON.stringify(all, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `wireface_presets_${Date.now()}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+
+document.getElementById('preset-file').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    const text = await f.text();
+    const data = JSON.parse(text);
+    const arr = Array.isArray(data) ? data : [data];
+    const idx = readPresetIndex();
+    for (const p of arr) {
+      const id = shortGuid();
+      const name = (p.name || 'imported') + '_' + id;
+      p.id = id; p.name = name;
+      localStorage.setItem(PRESET_KEY(id), JSON.stringify(p));
+      idx.unshift({ id, name, createdAt: p.createdAt || new Date().toISOString() });
+    }
+    writePresetIndex(idx);
+    refreshPresetList();
+  } catch (err) {
+    console.warn('preset import failed', err);
+  }
+  e.target.value = '';
+});
+
+refreshPresetList();
+
+/* transport */
+document.getElementById('btn-play').addEventListener('click', () => {
+  const playBtn = document.getElementById('btn-play');
+  const isCurrentlyPlaying = isPlaying || trackPlaying;
+
+  if (isCurrentlyPlaying) {
+    // pause everything
+    if (isPlaying) { pausedAt = getPlaybackTime(); stopPlayback(); }
+    if (trackPlaying) trackPlaying = false;
+    playBtn.textContent = '▶ play';
+    return;
+  }
+
+  // start
+  const hasRealAudio = audioName !== 'test-tone';
+  if (hasRealAudio) {
+    startPlayback(pausedAt || 0);
+    if (importedTrack) playTrack();
+  } else if (importedTrack) {
+    playTrack();             // silent track playback
+  } else {
+    startPlayback(0);        // play the test tone so something demos
+  }
+  playBtn.textContent = '⏸ pause';
+});
+
+document.getElementById('btn-stop').addEventListener('click', () => {
+  stopPlayback();
+  trackPlaying = false;
+  pausedAt = 0;
+});
+
+/* timeline scrub */
+const timeline = document.getElementById('timeline');
+timeline.addEventListener('click', e => {
+  const r = timeline.getBoundingClientRect();
+  const t = (e.clientX - r.left) / r.width;
+  const dur = audioDuration || (importedTrack ? importedTrack.duration_ms / 1000 : 0);
+  if (dur === 0) return;
+  pausedAt = t * dur;
+  if (isPlaying) {
+    stopPlayback();
+    startPlayback(pausedAt);
+    document.getElementById('btn-play').textContent = '⏸ pause';
+  }
+});
+
+/* recording */
+document.getElementById('btn-record').addEventListener('click', () => {
+  if (recording) stopRecording(); else startRecording();
+});
+document.getElementById('btn-export').addEventListener('click', exportTrack);
+document.getElementById('btn-clear').addEventListener('click', () => {
+  captureBuffer = [];
+  importedTrack = null;
+  document.getElementById('track-info').textContent = 'no track recorded';
+  document.getElementById('btn-export').disabled = true;
+});
+
+/* status helpers */
+function setStatus(cls, text) {
+  const s = document.getElementById('status');
+  s.classList.remove('live', 'rec', 'idle');
+  s.classList.add(cls);
+  document.getElementById('status-text').textContent = text;
+}
+
+function formatTime(ms) {
+  const s = Math.floor(ms / 1000);
+  const cs = Math.floor((ms % 1000) / 10);
+  const mm = Math.floor(s / 60);
+  const ss = s % 60;
+  return String(mm).padStart(2, '0') + ':' + String(ss).padStart(2, '0') + '.' + String(cs).padStart(2, '0');
+}
+
+/* ─── 10. RENDER LOOP ──────────────────────────────────────────────────── */
+
+let lastT = performance.now();
+let frameNum = 0;
+let fpsAcc = 0, fpsCount = 0, fpsLast = lastT;
+let renderErrors = 0;
+
+engine.runRenderLoop(() => {
+  try {
+    const now = performance.now();
+    const dt = Math.min(0.05, (now - lastT) / 1000);
+    lastT = now;
+
+    /* idle micro-animations */
+    idleAnimate(dt);
+
+    /* live audio analysis */
+    if (isPlaying) analyzeAudioFrame();
+
+    /* track playback driving */
+    if (trackPlaying && importedTrack) {
+      const t = now - trackPlayStart;
+      if (t > importedTrack.duration_ms) {
+        trackPlaying = false;
+        setStatus('idle', 'idle');
+      } else {
+        evalTrack(t);
+      }
+    }
+
+    /* mood blend → channel targets (smooth crossfade between mood weights) */
+    updateMoodBlend(dt);
+
+    /* smooth toward targets */
+    smoothChannels(dt);
+
+    /* drive geometry */
+    updateFace();
+
+    /* orbit mode */
+    if (orbiting) camera.alpha += dt * 0.3;
+
+    /* recording */
+    captureFrame();
+
+    /* render */
+    scene.render();
+
+    /* UI updates — throttled */
+    frameNum++;
+    if (frameNum % 2 === 0) updateChannelUI();
+    if (frameNum % 8 === 0) updateTransportUI();
+
+    /* fps */
+    fpsCount++;
+    if (now - fpsLast > 500) {
+      const fps = Math.round((fpsCount * 1000) / (now - fpsLast));
+      document.getElementById('coord-fps').textContent = fps;
+      fpsCount = 0;
+      fpsLast = now;
+    }
+    document.getElementById('coord-frame').textContent = String(frameNum).padStart(4, '0');
+  } catch (err) {
+    renderErrors++;
+    if (renderErrors < 5 || renderErrors % 60 === 0) {
+      console.error('[wireface] render frame error #' + renderErrors + ':', err);
+    }
+  }
+});
+
+function updateChannelUI() {
+  let active = 0;
+  for (const ch of CHANNEL_NAMES) {
+    const v = state[ch];
+    const range = CHANNELS[ch].range;
+    const t = (v - range[0]) / (range[1] - range[0]);
+    const r = chanRefs[ch];
+    if (!r) continue;
+    r.fill.style.width = (t * 100).toFixed(1) + '%';
+    r.val.textContent = v.toFixed(2);
+    const isActive = Math.abs(v - CHANNELS[ch].def) > 0.05;
+    r.bar.classList.toggle('active', isActive);
+    if (isActive) active++;
+  }
+  document.getElementById('coord-active').textContent = String(active).padStart(2, '0');
+}
+
+function updateTransportUI() {
+  const dur = audioDuration || (importedTrack ? importedTrack.duration_ms / 1000 : 0);
+  let cur = 0;
+  if (isPlaying) cur = getPlaybackTime();
+  else if (trackPlaying) cur = (performance.now() - trackPlayStart) / 1000;
+  else cur = pausedAt;
+  document.getElementById('t-cur').textContent = formatTime(cur * 1000);
+  if (dur > 0) {
+    const pct = Math.min(100, (cur / dur) * 100);
+    document.getElementById('progress').style.width = pct + '%';
+    document.getElementById('playhead').style.left = pct + '%';
+  }
+}
+
+window.addEventListener('resize', () => engine.resize());
+
+/* boot */
+buildTestTone();  // make sure transport has *something* to play
+setStatus('idle', 'idle · drag a face channel to lock');
+
+/* expose for debugging */
+window.WIREFACE = { state, stateTarget, CHANNELS, VISEME_PARAMS, captureBuffer, scene, camera };
+
+}  // end bootWireface
+</script>
+
+</body>
+</html>

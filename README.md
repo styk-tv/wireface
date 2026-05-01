@@ -1,14 +1,17 @@
 # wireface
 
-![wireface](WireFace.v1.0.png)
+![wireface](docs/wireface.png)
 
 **Minimal embeddable wireframe lipsync face renderer** — drives expressive character profiles from voice or TTS audio in the browser.
 
 Each call to `createWireface(canvas)` builds a fully independent instance: its own Babylon engine + scene, its own audio context, its own channel state, its own materials and meshes. Multiple instances live on the same page side-by-side without sharing state — drop a different preset and a different voice clip on each one.
 
+- repo: <https://github.com/styk-tv/wireface>
+- npm: <https://www.npmjs.com/package/wireface>
 - one source file: [`wireface.js`](wireface.js)
-- one runnable demo: [`wireface-demo.html`](wireface-demo.html)
-- preset format: plain JSON (drop a `.json` saved by the v010+ UI onto a panel)
+- two runnable examples: [`examples/demo.html`](examples/demo.html) (consumer), [`examples/editor.html`](examples/editor.html) (preset authoring)
+- two preset samples: [`examples/presets/`](examples/presets/)
+- preset format: plain JSON (drop a `.json` saved by the editor onto a panel)
 - audio: any browser-decodable file (`mp3`, `wav`, `ogg`, `m4a`, `flac`, `aac`, `opus`)
 
 ---
@@ -39,8 +42,8 @@ Pin to a major (`@1`), a minor (`@1.0`), or an exact version (`@1.0.0`) — `lat
 ## Quick start
 
 ```html
-<!-- Babylon.js as a global, loaded BEFORE wireface.js -->
-<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<!-- Babylon.js v9 as a global, loaded BEFORE wireface.js -->
+<script src="https://cdn.jsdelivr.net/npm/babylonjs@9/babylon.js"></script>
 <!-- pick one — minified for production, indented for debugging -->
 <script src="https://cdn.jsdelivr.net/npm/wireface@1/dist/wireface.min.js"></script>
 
@@ -72,33 +75,50 @@ That's the entire surface. Everything else is presets, channels, and moods.
 createWireface(canvas: HTMLCanvasElement, options?: object) → WireFace
 
 interface WireFace {
+  // audio + preset
   loadAudio(file_or_blob): Promise<void>
-  loadPreset(presetObject): void           // the JSON saved by the v010+ UI
+  loadPreset(presetObject): void           // the JSON saved by the editor
+  setRenderConfig(partial): void           // apply one-or-more renderConfig fields live
+  getRenderConfig(): object                // snapshot of current renderConfig
+
+  // transport
   play(fromOffset?: number): void
   pause(): void
   stop(): void
-  setMood(name): void                      // 'neutral'|'happy'|'sad'|'angry'|'fear'|'surprise'|'sleep'
-  setChannel(name, value): void            // manual override, drag-style (auto-releases after ~1.2s)
   setLoop(bool): void
-  setView(view): void                      // 'front'|'three-q'|'profile'|'orbit'
   isPlaying(): boolean
   getDuration(): number                    // seconds (0 if no audio loaded)
   getPosition(): number                    // seconds since playback start
+
+  // expression
+  setMood(name): void                      // 'neutral'|'happy'|'sad'|'angry'|'fear'|'surprise'|'sleep'
   getActiveMood(): string
+  setChannel(name, value): void            // manual override (auto-releases after ~1.2s)
+  setChannelGain(name, gain): void
+  getChannel(name): number                 // current smoothed value (0..1 or -1..1)
+  getChannelTarget(name): number           // latest target before smoothing
+  getChannelGain(name): number
+  getChannelNames(): string[]
+  getMoodNames(): string[]
+
+  // camera
+  setView(view): void                      // 'front'|'three-q'|'profile'|'orbit'
+
+  // teardown
   dispose(): void
 }
 ```
 
-Multiple instances are independent — see [`wireface-demo.html`](wireface-demo.html) for a two-panel example with per-panel drag/drop, transport buttons, and mood pills.
+Multiple instances are independent — see [`examples/demo.html`](examples/demo.html) for a two-panel example with per-panel drag/drop, transport buttons, and mood pills.
 
 ---
 
 ## Preset JSON
 
-A preset is one plain object — exactly the shape produced by the v010+ UI's **save** button. Two examples ship with this repo:
+A preset is one plain object — exactly the shape produced by the editor's **save** button. Two examples ship with this repo:
 
-- [`wireface_asset__post__th5rha.json`](wireface_asset__post__th5rha.json) — dense `21×21` red-wire face, glowy iris, deep eye sockets
-- [`wireface_asset__post__ydr7de.json`](wireface_asset__post__ydr7de.json) — sparse `7×9` low-poly blue-wire face, exaggerated mouth scale
+- [`examples/presets/asset-th5rha.json`](examples/presets/asset-th5rha.json) — dense `21×21` red-wire face, glowy iris, deep eye sockets
+- [`examples/presets/asset-ydr7de.json`](examples/presets/asset-ydr7de.json) — sparse `7×9` low-poly blue-wire face, exaggerated mouth scale
 
 ### Top-level fields
 
@@ -193,28 +213,26 @@ Crossfade time is controlled by `renderConfig.moodTransitionTime`.
 
 ---
 
-## Demo
+## Examples
 
-The repo ships with [`wireface-demo.html`](wireface-demo.html) — a two-instance side-by-side panel. Each panel:
+| File | Purpose |
+|---|---|
+| [`examples/demo.html`](examples/demo.html) | minimal **library consumer** — two side-by-side instances, drag-drop preset/audio, transport buttons, mood pills. Use this as your reference for embedding wireface into your own page. |
+| [`examples/editor.html`](examples/editor.html) | full **preset authoring** UI — sliders, knobs, color pickers, mood weights, save/load. Currently self-contained (ships its own copy of the rendering pipeline) for offline authoring; produces the `.json` shape the library consumes. |
 
-- accepts **drag-drop** of either a preset `.json` or an audio file
-- has its own **▶ play / ❚❚ pause / ■ stop / ⟲ loop** transport
-- has a row of **mood pills** (`neutral`, `happy`, `sad`, `angry`, `fear`, `surprise`, `sleep`)
-- exposes the live instance on `window.wirefaceLeft` / `window.wirefaceRight` for console poking
-
-To run it locally:
+To run them locally:
 
 ```bash
-npx --yes serve -l 5173 .
-# or:
 npm run demo
+# → opens a static server at http://localhost:5173 — visit /examples/demo.html
+#   or /examples/editor.html
 ```
 
-Then drop the bundled presets onto each panel:
+Then drop the bundled presets onto each panel of the demo:
 
 ```
-wireface_asset__post__th5rha.json   →   left
-wireface_asset__post__ydr7de.json   →   right
+examples/presets/asset-th5rha.json   →   left
+examples/presets/asset-ydr7de.json   →   right
 ```
 
 …and drop any `.mp3` of speech on top of either panel.

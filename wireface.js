@@ -1,6 +1,8 @@
 /* ============================================================================
  * wireface.js — minimal embeddable lipsync face renderer
  * ----------------------------------------------------------------------------
+ * Repository:  https://github.com/styk-tv/wireface
+ * npm:         https://www.npmjs.com/package/wireface
  * Copyright (c) 2026 Peter Styk
  * Released under the MIT License — see LICENSE in the repository root.
  * ----------------------------------------------------------------------------
@@ -13,19 +15,28 @@
  * this script is loaded.
  *
  * Public API returned by createWireface:
- *   loadAudio(file_or_blob)  → Promise<void>
- *   loadPreset(presetObject) → void          (the JSON saved by the v010+ UI)
- *   play()                   → void
- *   pause()                  → void
- *   stop()                   → void
- *   setMood(name)            → void          ('neutral','happy','sad', ...)
- *   setChannel(name, value)  → void          (manual override, drag-style)
- *   setLoop(bool)            → void
- *   setView(view)            → void          ('front','three-q','profile','orbit')
- *   isPlaying()              → bool
- *   getDuration()            → number (seconds, 0 if no audio)
- *   getPosition()            → number (seconds since start)
- *   dispose()                → void
+ *   loadAudio(file_or_blob)       → Promise<void>
+ *   loadPreset(presetObject)      → void     (the JSON saved by the v010+ UI)
+ *   setRenderConfig(partial)      → void     (apply one or more renderConfig fields)
+ *   getRenderConfig()             → object   (snapshot of current config)
+ *   play(fromOffset?)             → void
+ *   pause()                       → void
+ *   stop()                        → void
+ *   setMood(name)                 → void     ('neutral','happy','sad','angry','fear','surprise','sleep')
+ *   setChannel(name, value)       → void     (manual override, auto-releases ~1.2s)
+ *   setChannelGain(name, gain)    → void     (multiplier on channel before render)
+ *   getChannel(name)              → number   (current smoothed value)
+ *   getChannelTarget(name)        → number   (latest target before smoothing)
+ *   getChannelGain(name)          → number
+ *   getChannelNames()             → string[]
+ *   getMoodNames()                → string[]
+ *   setLoop(bool)                 → void
+ *   setView(view)                 → void     ('front','three-q','profile','orbit')
+ *   isPlaying()                   → bool
+ *   getDuration()                 → number   (seconds, 0 if no audio)
+ *   getPosition()                 → number   (seconds since start)
+ *   getActiveMood()               → string
+ *   dispose()                     → void
  * ========================================================================== */
 
 (function (global) {
@@ -219,6 +230,14 @@
     const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: false, stencil: false, antialias: true });
     const scene  = new BABYLON.Scene(engine);
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 1);
+    // we never pick on pointer-move; saves a per-frame ray test
+    scene.skipPointerMovePicking = true;
+
+    /* glow layer — bloom on the emissive wire/overlay/iris materials. Gated by
+       config.glow; intensity 0 disables it. Created once and toggled, not
+       added/removed per frame. */
+    const glowLayer = new BABYLON.GlowLayer('glow', scene, { mainTextureFixedSize: 1024, blurKernelSize: 32 });
+    glowLayer.intensity = 0;
 
     const camera = new BABYLON.ArcRotateCamera('cam', -Math.PI/2 - 0.6, Math.PI/2 - 0.15, 4.0, BABYLON.Vector3.Zero(), scene);
     camera.minZ = 0.1; camera.maxZ = 100;
@@ -1271,6 +1290,10 @@
       camera.radius = v.radius;
     }
 
+    function applyGlow() {
+      glowLayer.intensity = config.glow ? 0.85 : 0;
+    }
+
     /* ── initial build ── */
     rebuildMesh();
     rebuildPupils();
@@ -1281,6 +1304,7 @@
     applyBrowColor(config.browColor);
     applyPupilColor(config.pupilColor);
     applyIrisColor(config.irisColor);
+    applyGlow();
     setView(config.cameraView);
 
     /* ── render loop ── */
@@ -1339,6 +1363,7 @@
         if (rc.irisSize !== undefined)      rebuildPupils();
         if (rc.lipVertAmp !== undefined || rc.lipPressForce !== undefined) identifyAnchorRings();
       }
+      if (rc.glow !== undefined) applyGlow();
       // channel gains
       if (p.channelGains) {
         for (const ch of CHANNEL_NAMES) if (p.channelGains[ch] !== undefined) channelGains[ch] = p.channelGains[ch];
@@ -1385,6 +1410,19 @@
       },
       setView,
       loadPreset,
+      /* lighter than loadPreset — apply a partial renderConfig without touching
+         channelGains/activeMood. Intended for live UI controls (sliders, toggles,
+         color pickers) where you change one field per call. */
+      setRenderConfig(partial) { loadPreset({ renderConfig: partial }); },
+      getRenderConfig() { return Object.assign({}, config); },
+      /* live channel introspection — useful for editor channel meters that
+         display the smoothed audio-driven values and gain knobs. */
+      getChannel(name)       { return state[name] !== undefined ? state[name] : 0; },
+      getChannelTarget(name) { return stateTarget[name] !== undefined ? stateTarget[name] : 0; },
+      getChannelGain(name)   { return channelGains[name] !== undefined ? channelGains[name] : 1; },
+      setChannelGain(name, gain) { if (CHANNELS[name]) channelGains[name] = gain; },
+      getChannelNames()      { return CHANNEL_NAMES.slice(); },
+      getMoodNames()         { return MOOD_NAMES.slice(); },
       isPlaying() { return isPlayingFlag; },
       getDuration() { return audioBuffer ? audioBuffer.duration : 0; },
       getPosition() { return getPlaybackTime(); },
