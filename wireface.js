@@ -1328,6 +1328,8 @@
           }
           if (!manualSmooth[ch]) { state[ch] = target; continue; }
         }
+        // the mood's jaw under the speech: speech opens what the mood left closed
+        else if (ch === 'jawOpen' && moodJaw > 0) target = moodJaw + target * (1 - moodJaw);
         let k = SMOOTH[ch] || SMOOTH.default;
         if (snapping && LIP_CHANNELS[ch]) k *= 3;
         const a = 1 - Math.exp(-k * dt * 30);
@@ -1335,6 +1337,7 @@
       }
     }
 
+    let moodJaw = 0;
     function updateMoodBlend(dt) {
       const T = Math.max(0.05, config.moodTransitionTime);
       const halflife = T / 4;
@@ -1347,6 +1350,13 @@
         for (const m of MOOD_NAMES) target += (MOODS[m][ch] || 0) * moodCurrentWeights[m];
         stateTarget[ch] = target;
       }
+      // A mood's jaw. jawOpen is not a mood channel — speech owns its target —
+      // so the mood's share is kept apart and laid under the speech in
+      // smoothChannels. Until v1.3 it was never read: 'surprise' declared a
+      // jaw drop and showed none.
+      let jaw = 0;
+      for (const m of MOOD_NAMES) jaw += (MOODS[m].jawOpen || 0) * moodCurrentWeights[m];
+      moodJaw = Math.max(0, Math.min(1, jaw));
     }
 
     /* ── idle micro-animations: blinks + saccades + head bob ── */

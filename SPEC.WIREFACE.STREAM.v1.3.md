@@ -226,6 +226,7 @@ differently after upgrading, without changing a line:
 | Motion below 20 fps | glides, hops and lip smoothing ran in slow motion | real time |
 | A face with `glow: false` | still paid for the glow passes | does not |
 | `setView()` then a transient behaviour | returned to the behaviour before the `setView` | returns to the view |
+| The `surprise` mood (and `important`, `cut`, `jump`) | brows only | brows and a dropped jaw, as documented |
 
 To get the closing precision, add `run` and `end`. To get immunity from
 arrival jitter, add `at`.

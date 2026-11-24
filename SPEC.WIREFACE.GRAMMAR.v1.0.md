@@ -241,7 +241,13 @@ frame. The "active" mood gets weight 1; others fade to 0 over
 
 `MOOD_CHANNELS = [browInnerUp, browOuterUp, browDown, mouthSmile, eyeSquint,
 noseSneer, eyeBlinkLeft, eyeBlinkRight]` — only these channels are mood-driven;
-visemes / jawOpen / head pose remain audio-driven.
+visemes / head pose remain audio-driven.
+
+`jawOpen` stays speech-driven, with one addition (v1.3): a mood may carry a
+`jawOpen` weight (`surprise`: 0.5), and that share is laid **under** the
+speech — `jaw = mood + speech × (1 − mood)` — so a surprised face has its jaw
+dropped and still opens further when it speaks. Before v1.3 the weight was
+declared and never read.
 
 ---
 

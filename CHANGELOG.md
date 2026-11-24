@@ -46,6 +46,13 @@ Streamed speech on a clock. Specified in
   face under software rendering.
 - **`setView()` did not forget the lasting behaviour**, so a later transient
   behaviour returned to the framing from before the `setView`.
+- **`surprise` never opened the jaw.** The mood declares `jawOpen: 0.5` and
+  the docs say "brows up, jaw open", but the mood blend only read the eight
+  mood channels. A mood's jaw is now laid under the speech-driven jaw
+  (`jaw = mood + speech × (1 − mood)`), so `surprise` — and the behaviours
+  built on it: `important`, `cut`, `jump` — drops the jaw, and the face still
+  opens further when it speaks. Found by judging the library's own constants
+  against its grammar.
 
 Measured by the suite on a steady tone, 60 fps (mouth open / closed taken at
 a jaw opening of 0.05, relative to the sound):
