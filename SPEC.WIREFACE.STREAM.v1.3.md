@@ -57,7 +57,7 @@ sampleRate  the chunk's own rate, any value (8000 … 96000).
 |---|---|---|---|
 | `at` | ms | — | when this chunk's **first sample sounds**, on the wall clock (`Date.now()` scale) |
 | `delay` | s | `0.05` | for chunks without `at`: the lead before a new run |
-| `run` | any | — | the utterance this chunk belongs to (§3) |
+| `run` | string \| number | — | the utterance this chunk belongs to (§3) |
 | `end` | bool | `false` | this is the run's last chunk (§3) |
 | `audible` | bool | `false` | also sound the chunk. Default is silent: the speech is sounded elsewhere |
 | `lead` | s | `0.08` | how far the lips run ahead of the sound (§5). Sticky: stays until set again |
@@ -145,7 +145,7 @@ isSpeaking() → boolean
 | `speechstart` | `{ run }` | when the lips first move for a run |
 | `speechend` | `{ run, reason }` | `reason: 'end'` — a flagged run finished, or the next run took over · `'cut'` — `cutAudio` · `'dry'` — an unflagged stream stopped arriving, 250 ms ago |
 | `underrun` | `{ run }` | the queue ran dry in a run that was not flagged as ended — the sender fell behind, or stopped without saying so |
-| `behaviour` | `{ name, returned? }` | a behaviour was set; `returned: true` when a transient one gave way to the behaviour before it |
+| `behaviour` | `{ name, returned? }` | a behaviour was set; `returned: true` when a transient one gave way to the behaviour before it. `name` is `null` when the framing was released — `setBehaviour(null)`, or a transient returning to a plain view |
 
 A pause inside an utterance is not a `speechend`: one run is one
 `speechstart` and one `speechend`, however many chunks and silences it holds.
