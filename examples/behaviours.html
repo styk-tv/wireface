@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<!--
+  wireface — behaviours + streamed speech (four faces)
+
+  What this page shows, in the order a page with several faces needs it:
+    1. DESIGNS    each face starts from a bundled preset (presets/*.json), gets a
+                  small variation and its own background, and getPreset() hands
+                  the result back as JSON to store.
+    2. BEHAVIOURS the page only says what is going on (speak, listen, idle, busy,
+                  jump …) with setBehaviour(name); the library glides the framing,
+                  brightness and mood. No camera is touched from here.
+    3. STREAM     speech arrives as PCM chunks, not as a file: pushAudio(chunk,
+                  rate) feeds them to the same lip analysis loadAudio()/play() uses.
+
+  Serve the repo root (npm run demo) and open /examples/behaviours.html.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>wireface — behaviours + streamed speech</title>
+<style>
+  :root { --fg:#e8e8e8; --dim:#777; --line:#262626; --accent:#ffeb3b; --mono:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:#000; color:var(--fg); font:11px var(--mono); letter-spacing:.08em; }
+  body { display:flex; flex-direction:column; }
+  #faces { flex:1; display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--line); min-height:0; }
+  .face { position:relative; background:#000; min-width:0; min-height:0; cursor:pointer; }
+  .face canvas { width:100%; height:100%; display:block; outline:none; touch-action:none; }
+  .face .tag { position:absolute; left:10px; top:8px; text-transform:uppercase; color:var(--dim); pointer-events:none; mix-blend-mode:difference; }
+  .face .tag b { color:var(--fg); font-weight:400; }
+  .face.floor .tag b { color:var(--accent); }
+  #bar { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:10px; border-top:1px solid var(--line); }
+  #bar .sep { width:1px; height:18px; background:var(--line); margin:0 6px; }
+  #bar label { color:var(--dim); text-transform:uppercase; }
+  button { background:none; color:var(--fg); border:1px solid #3a3a3a; padding:5px 9px; font:inherit; letter-spacing:inherit; text-transform:uppercase; cursor:pointer; }
+  button:hover { background:var(--fg); color:#000; }
+  button.on { background:var(--accent); color:#000; border-color:var(--accent); }
+  #note { color:var(--dim); padding:0 10px 10px; }
+</style>
+</head>
+<body>
+<div id="faces"></div>
+<div id="bar">
+  <label>stream</label>
+  <button id="stream">▶ stream speech</button>
+  <button id="silent" title="lips move, no sound from this page — for speech that is sounded elsewhere">silent: off</button>
+  <span class="sep"></span>
+  <label>floor face</label>
+  <span id="shots"></span>
+  <span class="sep"></span>
+  <button id="store" title="log every face's design (getPreset) to the console">store designs</button>
+</div>
+<div id="note">click a face to give it the floor · the others turn toward it · shots apply to the floor face</div>
+
+<script src="https://cdn.jsdelivr.net/npm/babylonjs@9/babylon.js"></script>
+<script src="../wireface.js"></script>
+<script>
+/* 1. DESIGNS — a bundled preset per face, each nudged a little so no two faces
+      are the same, each with its own backdrop. */
+const DESIGNS = [
+  { name: 'ember', preset: 'asset-8pgwi9', vary: { backgroundColor: '#0d0707' } },
+  { name: 'block', preset: 'asset-kln33e', vary: { backgroundColor: '#070b12', baseColor: '#58a6ca', spread: 1.45 } },
+  { name: 'rose',  preset: 'asset-th5rha', vary: { backgroundColor: '#12060a', meshCols: 19, scaleEyes: 1.2 } },
+  { name: 'slate', preset: 'asset-ydr7de', vary: { backgroundColor: '#0b0c16', meshRows: 11, lineColor: '#c8cdf0' } },
+];
+const SHOTS = ['point', 'closeup', 'closeup-eyes', 'closeup-mouth', 'work', 'distant', 'away', 'jump', 'asleep'];
+
+const faces = [];
+let floor = 0;
+
+async function mount(design, i) {
+  const el = document.createElement('div');
+  el.className = 'face';
+  el.innerHTML = `<canvas></canvas><div class="tag"><b>${design.name}</b> · <span></span></div>`;
+  document.getElementById('faces').appendChild(el);
+  const wf = createWireface(el.querySelector('canvas'));
+  const data = await fetch(`presets/${design.preset}.json`).then(r => r.json());
+  wf.loadPreset(Array.isArray(data) ? data[0] : data);   // pick the design
+  wf.setRenderConfig(design.vary);                        // …and make it this face's own
+  const face = { wf, el, label: el.querySelector('.tag span'), design };
+  el.addEventListener('click', () => { floor = i; arrange(); });
+  return face;
+}
+
+/* 2. BEHAVIOURS — one line per face says what is going on. The floor face
+      speaks or listens; the others idle, turned toward it (side). */
+let speaking = false;
+function arrange() {
+  faces.forEach((f, i) => {
+    f.el.classList.toggle('floor', i === floor);
+    if (i === floor) f.wf.setBehaviour(speaking ? 'speak' : 'listen');
+    else             f.wf.setBehaviour(speaking ? 'waiting' : 'idle', { side: Math.sign(i - floor) || 1 });
+  });
+}
+setInterval(() => faces.forEach(f => { f.label.textContent = f.wf.getBehaviour() || '—'; }), 200);
+
+/* 3. STREAM — speech as PCM chunks. Here the chunks are cut from the bundled
+      sample to stand in for a TTS stream: 50 ms of 22.05 kHz int16 at a time,
+      handed to the floor face as they "arrive". */
+const RATE = 22050, CHUNK = Math.round(RATE * 0.05);
+let pcm = null, cursor = 0, timer = null, silent = false;
+const EMPTY = new Int16Array(0);
+
+async function loadPcm() {
+  const bytes = await fetch('Wireface-001-kokoro-santa.mp3').then(r => r.arrayBuffer());
+  const off = new OfflineAudioContext(1, 1, RATE);
+  const buf = await off.decodeAudioData(bytes);            // decoded at RATE
+  const x = buf.getChannelData(0);
+  pcm = new Int16Array(x.length);
+  for (let i = 0; i < x.length; i++) pcm[i] = Math.max(-1, Math.min(1, x[i])) * 32767;
+}
+function pump() {
+  // keep ~150 ms queued ahead, like a network sender would
+  let ahead = faces[floor].wf.pushAudio(EMPTY, RATE);     // an empty chunk reports what is queued
+  while (ahead < 0.15 && cursor < pcm.length) {
+    const chunk = pcm.subarray(cursor, cursor + CHUNK);
+    cursor += CHUNK;
+    ahead = faces[floor].wf.pushAudio(chunk, RATE, { audible: !silent });
+  }
+  if (cursor >= pcm.length) stopStream();
+}
+async function startStream() {
+  if (!pcm) await loadPcm();
+  speaking = true; arrange();
+  timer = setInterval(pump, 40); pump();
+  document.getElementById('stream').textContent = '■ stop stream';
+}
+function stopStream() {
+  clearInterval(timer); timer = null; cursor = 0;
+  speaking = false; arrange();
+  document.getElementById('stream').textContent = '▶ stream speech';
+}
+document.getElementById('stream').onclick = () => timer ? stopStream() : startStream();
+document.getElementById('silent').onclick = e => { silent = !silent; e.target.textContent = 'silent: ' + (silent ? 'on' : 'off'); e.target.classList.toggle('on', silent); };
+
+for (const name of SHOTS) {
+  const b = document.createElement('button');
+  b.textContent = name;
+  b.onclick = () => faces[floor].wf.setBehaviour(name);
+  document.getElementById('shots').appendChild(b);
+}
+document.getElementById('store').onclick = () => {
+  const designs = Object.fromEntries(faces.map(f => [f.design.name, f.wf.getPreset()]));
+  console.log('[wireface] designs', designs);
+};
+
+(async () => {
+  for (let i = 0; i < DESIGNS.length; i++) faces.push(await mount(DESIGNS[i], i));
+  arrange();
+  window.faces = faces;   // for console poking
+})();
+</script>
+</body>
+</html>

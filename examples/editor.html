@@ -348,6 +348,7 @@
       <h3>colours <span class="num">style</span></h3>
       <div class="color-row"><div class="ctl-name">base</div><input type="color" id="color-base" value="#ffffff"><div class="ctl-val" id="color-base-val">FFF</div></div>
       <div class="color-row"><div class="ctl-name">depth fade</div><input type="color" id="color-fade" value="#000000"><div class="ctl-val" id="color-fade-val">000</div></div>
+      <div class="color-row"><div class="ctl-name">background</div><input type="color" id="color-bg" value="#000000"><div class="ctl-val" id="color-bg-val">000</div></div>
       <div class="ctl"><div class="ctl-name">fade ░░</div><div class="ctl-bar" data-rcfg="depthFade" data-min="0" data-max="1" data-step="0.02"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="depthFade">0.00</div></div>
       <div class="ctl"><div class="ctl-name">fade curve</div><div class="ctl-bar" data-rcfg="depthFadeCurve" data-min="0.3" data-max="3" data-step="0.05"><div class="fill"></div></div><div class="ctl-val" data-rcfg-val="depthFadeCurve">1.00</div></div>
       <div class="color-row"><div class="ctl-name">line (default)</div><input type="color" id="color-line" value="#ffffff"><div class="ctl-val" id="color-line-val">FFF</div></div>
@@ -659,6 +660,7 @@ const renderConfig = {
   // v011:
   baseColor: '#ffffff',     // mesh wireframe / face emissive base color
   fadeColor: '#000000',     // back-of-mesh color to fade to (depth gradient)
+  backgroundColor: '#000000', // scene clear colour behind the face (v1.2) — saved with the preset
   depthFade: 0.0,           // 0 = no fade, 1 = full fade to fadeColor at deepest z [0, 1]
   irisColor: '#000000',     // iris ring color (visible behind pupil)
   irisSize: 1.6,            // iris radius multiplier on pupil radius [1, 4]
@@ -2640,6 +2642,14 @@ function applyFadeColor(hex) {
   const lbl = document.getElementById('color-fade-val');
   if (lbl) lbl.textContent = hex.replace('#', '').toUpperCase().slice(0, 3);
 }
+function applyBackgroundColor(hex) {
+  if (!/^#[0-9a-f]{6}$/i.test(hex || '')) return;
+  renderConfig.backgroundColor = hex;
+  const c = hex2rgb(hex);
+  scene.clearColor = new BABYLON.Color4(c[0], c[1], c[2], 1);
+  const lbl = document.getElementById('color-bg-val');
+  if (lbl) lbl.textContent = hex.replace('#', '').toUpperCase().slice(0, 3);
+}
 function applyIrisColor(hex) {
   renderConfig.irisColor = hex;
   if (typeof irisMat !== 'undefined' && irisMat) {
@@ -2662,6 +2672,7 @@ function applyBrowColor(hex) {
     ['color-pupil', 'pupilColor', applyPupilColor],
     ['color-base',  'baseColor',  applyBaseColor],
     ['color-fade',  'fadeColor',  applyFadeColor],
+    ['color-bg',    'backgroundColor', applyBackgroundColor],
     ['color-iris',  'irisColor',  applyIrisColor],
     ['color-brow',  'browColor',  applyBrowColor],
     // v1.1: per-feature minimal-line colors. Default value seeded from
@@ -2836,6 +2847,10 @@ function applyPreset(p) {
   if (p.renderConfig && p.renderConfig.fadeColor) {
     const el = document.getElementById('color-fade'); if (el) el.value = p.renderConfig.fadeColor;
     applyFadeColor(p.renderConfig.fadeColor);
+  }
+  if (p.renderConfig && p.renderConfig.backgroundColor) {
+    const el = document.getElementById('color-bg'); if (el) el.value = p.renderConfig.backgroundColor;
+    applyBackgroundColor(p.renderConfig.backgroundColor);
   }
   if (p.renderConfig && p.renderConfig.irisColor) {
     const el = document.getElementById('color-iris'); if (el) el.value = p.renderConfig.irisColor;

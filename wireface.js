@@ -22,8 +22,24 @@
  *   play(fromOffset?)             → void
  *   pause()                       → void
  *   stop()                        → void
+ *   setMuted(bool) / isMuted()    → void/bool (analyse the loaded audio without sounding it)
+ *   attachAudio(source)           → void     (lips follow a MediaStream or AudioNode the
+ *                                             library does not play; never made audible)
+ *   pushAudio(samples, rate, opts?)→ number  (streamed PCM chunks drive the lips; silent
+ *                                             unless opts.audible; returns seconds queued)
+ *   detachAudio()                 → void
+ *   getPreset()                   → object   (the face's design, as loadPreset() takes it)
  *   setMood(name)                 → void     ('neutral','happy','sad','angry','fear','surprise','sleep')
- *   setChannel(name, value)       → void     (manual override, auto-releases ~1.2s)
+ *   setBehaviour(name, opts?)     → bool     (named framing recipe: yaw, pitch, zoom, dim, mood —
+ *                                             glides there; opts { side, glide, for }; null clears)
+ *   defineBehaviours(recipes)     → void     (add / override recipes; accepts { recipes, glide_s })
+ *   getBehaviour()                → string|null
+ *   getBehaviourNames()           → string[]
+ *   getBehaviours()               → object   (copy of the recipe table)
+ *   setChannel(name, value, opts?)→ void     (manual override, auto-releases ~1.2s;
+ *                                             opts { hold } keeps it until releaseChannel,
+ *                                             opts { smooth } eases to the value)
+ *   releaseChannel(name)          → void
  *   setChannelGain(name, gain)    → void     (multiplier on channel before render)
  *   getChannel(name)              → number   (current smoothed value)
  *   getChannelTarget(name)        → number   (latest target before smoothing)
@@ -188,7 +204,53 @@
     // is jawOpen-driven). Default 0 = current behavior.
     upperJawProtrude: 0.0, lowerJawProtrude: 0.0,
     cameraView: 'three-q', // initial view
+    // scene clear colour behind the face. Saved with the preset like every
+    // other colour, so each face can carry its own backdrop.
+    backgroundColor: '#000000',
   };
+
+  /* Named behaviours — framing recipes a face glides to, set by name the same
+     way a mood is (setBehaviour('attend')). The caller says what is going on;
+     the library owns the camera physics, so no camera object is exposed.
+       yaw    radians the face is turned away from the viewer (0 = facing you)
+       pitch  radians, positive looks down
+       zoom   1 = normal, bigger = closer
+       dim    0..1 brightness
+       mood   a mood name, or 'persona' (the face's own mood)
+       toward advisory for the page: turn the yaw toward whoever holds the
+              floor — pass opts.side (-1 | 1) to setBehaviour
+       focus  what the shot centres on: 'face' | 'center' | 'eyes' | 'nose' | 'mouth'
+       hop    height of a short bounce on entry (scene units)
+       for    seconds; a transient behaviour returns to the previous one
+     The first ten are states of a face in a group; the rest are shots.
+     Full table: SPEC.WIREFACE.BEHAVIOURS.v1.2.md §2. */
+  const BEHAVIOURS = {
+    asleep:    { yaw: 0.60, pitch: 0.10, zoom: 0.80, dim: 0.55, mood: 'sleep',    toward: false },
+    parked:    { yaw: 0.65, pitch: 0.05, zoom: 0.82, dim: 0.60, mood: 'neutral',  toward: true  },
+    idle:      { yaw: 0.45, pitch: 0.00, zoom: 0.90, dim: 0.75, mood: 'neutral',  toward: true  },
+    waiting:   { yaw: 0.30, pitch: 0.00, zoom: 0.95, dim: 0.85, mood: 'neutral',  toward: true  },
+    busy:      { yaw: 0.25, pitch: 0.22, zoom: 1.00, dim: 0.90, mood: 'fear',     toward: false },
+    listen:    { yaw: 0.00, pitch:-0.04, zoom: 1.10, dim: 1.00, mood: 'neutral',  toward: false },
+    speak:     { yaw: 0.00, pitch: 0.00, zoom: 1.22, dim: 1.00, mood: 'persona',  toward: false },
+    attend:    { yaw: 0.00, pitch:-0.06, zoom: 1.35, dim: 1.00, mood: 'happy',    toward: false },
+    important: { yaw: 0.00, pitch:-0.08, zoom: 1.35, dim: 1.00, mood: 'surprise', toward: false },
+    cut:       { yaw: 0.15, pitch: 0.08, zoom: 1.05, dim: 0.90, mood: 'surprise', toward: false },
+    // shots
+    point:     { yaw: 0.00, pitch:-0.03, zoom: 1.70, dim: 1.00, mood: 'persona' },
+    distant:   { yaw: 0.50, pitch: 0.04, zoom: 0.55, dim: 0.70, mood: 'neutral',  toward: true },
+    away:      { yaw: 0.80, pitch: 0.06, zoom: 0.90, dim: 0.80, mood: 'neutral' },
+    work:      { yaw: 0.30, pitch: 0.32, zoom: 0.95, dim: 0.85, mood: 'neutral' },
+    jump:      { yaw: 0.00, pitch:-0.06, zoom: 1.30, dim: 1.00, mood: 'surprise', hop: 0.30, for: 1.6 },
+    closeup:         { yaw: 0, pitch: 0, zoom: 2.20, dim: 1, mood: 'persona', focus: 'center' },
+    'closeup-eyes':  { yaw: 0, pitch: 0, zoom: 2.40, dim: 1, mood: 'persona', focus: 'eyes'  },
+    'closeup-nose':  { yaw: 0, pitch: 0, zoom: 3.00, dim: 1, mood: 'persona', focus: 'nose'  },
+    'closeup-mouth': { yaw: 0, pitch: 0, zoom: 2.80, dim: 1, mood: 'persona', focus: 'mouth' },
+  };
+  /* camera radius at zoom 1, and the height each focus centres on (face-local
+     y; warpToFace puts the eyes at +0.20 and the mouth at −0.38). */
+  const BEHAVIOUR_RADIUS = 3.3;
+  const FOCUS_Y = { face: 0, center: -0.08, eyes: 0.20, nose: -0.05, mouth: -0.38 };
+  const HEAD_CHANNELS = { headRotateX: 1, headRotateY: 1, headRotateZ: 1 };
 
   /* ─── module helpers ─────────────────────────────────────────────────── */
 
@@ -224,6 +286,12 @@
     const state = {};
     const stateTarget = {};
     const manualLock = {};
+    /* what a caller set through setChannel, kept apart from stateTarget: the
+       drivers (idle, mood blend, audio) keep writing stateTarget every frame,
+       and before v1.2 that overwrote any manual value on a driven channel in
+       the same frame it was set. */
+    const manualValue = {};
+    const manualSmooth = {};
     const channelGains = {};
     CHANNEL_NAMES.forEach(n => {
       state[n] = CHANNELS[n].def;
@@ -263,7 +331,7 @@
     // rewiring.
     const scene = new BABYLON.Scene(engine, { useRightHandedSystem: true });
     scene.useRightHandedSystem = true;  // belt and braces — also assign post-ctor
-    scene.clearColor = new BABYLON.Color4(0, 0, 0, 1);
+    scene.clearColor = new BABYLON.Color4(0, 0, 0, 1);   // applyBackgroundColor() sets the configured one
     // we never pick on pointer-move; saves a per-frame ray test
     scene.skipPointerMovePicking = true;
 
@@ -1208,10 +1276,19 @@
     /* ── channel smoothing + mood blend + idle ── */
     function smoothChannels(dt) {
       for (const ch of CHANNEL_NAMES) {
-        if (manualLock[ch]) { state[ch] = stateTarget[ch]; continue; }
+        let target = stateTarget[ch];
+        if (manualLock[ch]) {
+          target = manualValue[ch];
+          // a held head pose keeps the idle sway on top of it
+          if (HEAD_CHANNELS[ch]) {
+            const r = CHANNELS[ch].range;
+            target = Math.max(r[0], Math.min(r[1], target + _bob[ch]));
+          }
+          if (!manualSmooth[ch]) { state[ch] = target; continue; }
+        }
         const k = SMOOTH[ch] || SMOOTH.default;
         const a = 1 - Math.exp(-k * dt * 30);
-        state[ch] = state[ch] + (stateTarget[ch] - state[ch]) * a;
+        state[ch] = state[ch] + (target - state[ch]) * a;
       }
     }
 
@@ -1236,6 +1313,7 @@
     let _saccadeAccum = 0;
     let _saccTargetH = 0, _saccTargetV = 0;
     let _bobT = 0;
+    const _bob = { headRotateX: 0, headRotateY: 0, headRotateZ: 0 };
     function idleAnimate(dt) {
       // blinks
       _blinkAccum += dt;
@@ -1262,9 +1340,12 @@
       stateTarget.eyeLookV = _saccTargetV;
       // head bob — gentle sway
       _bobT += dt;
-      stateTarget.headRotateX = Math.sin(_bobT * 0.27) * 0.04;
-      stateTarget.headRotateY = Math.sin(_bobT * 0.19) * 0.06;
-      stateTarget.headRotateZ = Math.sin(_bobT * 0.11) * 0.03;
+      _bob.headRotateX = Math.sin(_bobT * 0.27) * 0.04;
+      _bob.headRotateY = Math.sin(_bobT * 0.19) * 0.06;
+      _bob.headRotateZ = Math.sin(_bobT * 0.11) * 0.03;
+      stateTarget.headRotateX = _bob.headRotateX;
+      stateTarget.headRotateY = _bob.headRotateY;
+      stateTarget.headRotateZ = _bob.headRotateZ;
     }
 
     /* ── audio analysis for live lip-sync ── */
@@ -1276,6 +1357,9 @@
     let pausedAt = 0;
     let isPlayingFlag = false;
     let audioFreqData = null;
+    let outGain = null;      // playback volume: 0 when muted, so the analyser still runs
+    let muted = false;
+    let ext = null;          // outside audio attached with attachAudio()
 
     function ensureAudioCtx() {
       if (!audioCtx) {
@@ -1302,8 +1386,11 @@
       analyser.fftSize = 1024;
       analyser.smoothingTimeConstant = 0.4;
       audioFreqData = new Uint8Array(analyser.frequencyBinCount);
+      outGain = audioCtx.createGain();
+      outGain.gain.value = muted ? 0 : 1;
       audioSource.connect(analyser);
-      analyser.connect(audioCtx.destination);
+      analyser.connect(outGain);
+      outGain.connect(audioCtx.destination);
       audioStartCtxTime = audioCtx.currentTime - (fromOffset || 0);
       audioSource.start(0, fromOffset || 0);
       audioSource.onended = () => {
@@ -1325,7 +1412,111 @@
         audioSource = null;
       }
       if (analyser) { try { analyser.disconnect(); } catch (_) {} analyser = null; }
+      if (outGain) { try { outGain.disconnect(); } catch (_) {} outGain = null; }
       isPlayingFlag = false;
+    }
+
+    function silenceLips() {
+      for (const v of Object.keys(VISEME_PARAMS)) stateTarget['viseme_' + v] = 0;
+      stateTarget.viseme_sil = 1;
+      stateTarget.jawOpen = 0;
+    }
+
+    /* An analyser whose input goes quiet can stop being processed, and then
+       keeps answering with its last spectrum — the mouth would freeze open
+       when a stream ends. A constant source far below audibility (−180 dB,
+       at 0 Hz, outside every band read here) keeps it running. */
+    function keepAnalysing(ctx, an) {
+      if (!ctx.createConstantSource) return null;
+      const k = ctx.createConstantSource();
+      k.offset.value = 1e-9;
+      k.connect(an);
+      k.start();
+      return k;
+    }
+
+    /* Outside audio: speech the library does not play itself (a WebRTC or
+       microphone stream, another graph's node). It runs through the same
+       analyser → viseme pipeline as loadAudio()/play(), so the lips match the
+       built-in path. The tap ends in a zero gain: wireface never makes
+       attached audio audible — whoever owns the source plays it. */
+    function attachAudio(source) {
+      detachAudio();
+      let node = null, owned = false;
+      if (source && typeof source.connect === 'function' && source.context) {
+        node = source;
+      } else if (typeof MediaStream !== 'undefined' && source instanceof MediaStream) {
+        ensureAudioCtx();
+        node = audioCtx.createMediaStreamSource(source);
+        owned = true;
+      } else {
+        throw new Error('wireface.attachAudio: expected a MediaStream or an AudioNode');
+      }
+      const ctx = node.context;
+      const an = ctx.createAnalyser();
+      an.fftSize = 1024;
+      an.smoothingTimeConstant = 0.4;
+      const sink = ctx.createGain();
+      sink.gain.value = 0;
+      node.connect(an);
+      an.connect(sink);
+      sink.connect(ctx.destination);
+      ext = { node, an, sink, owned, keep: keepAnalysing(ctx, an), data: new Uint8Array(an.frequencyBinCount) };
+    }
+
+    /* Streamed speech: PCM chunks handed over as they arrive — no file, no
+       MediaStream. Chunks are queued back to back into the same analyser the
+       built-in playback uses. Silent unless opts.audible, so it can shadow
+       speech that is sounded elsewhere; opts.delay (seconds) is the lead put
+       in front of a run of chunks, to line the lips up with those speakers.
+         samples     Float32Array (−1..1), Int16Array, or an ArrayBuffer of int16
+         sampleRate  of the chunk; any rate, resampled by the audio context
+       Returns the seconds of audio queued ahead, so a sender can pace itself;
+       an empty chunk just reports that figure. */
+    function pushAudio(samples, sampleRate, opts) {
+      opts = opts || {};
+      ensureAudioCtx();
+      if (!ext || !ext.feed) {
+        detachAudio();
+        const an = audioCtx.createAnalyser();
+        an.fftSize = 1024;
+        an.smoothingTimeConstant = 0.4;
+        const sink = audioCtx.createGain();
+        an.connect(sink);
+        sink.connect(audioCtx.destination);
+        ext = { node: null, an, sink, owned: true, feed: true, next: 0, keep: keepAnalysing(audioCtx, an), data: new Uint8Array(an.frequencyBinCount) };
+      }
+      // an empty chunk only asks how much is queued; it changes nothing
+      if (!samples || !samples.length && !samples.byteLength) return Math.max(0, ext.next - audioCtx.currentTime);
+      ext.sink.gain.value = opts.audible ? 1 : 0;
+      let f32 = samples;
+      if (!(samples instanceof Float32Array)) {
+        const i16 = (samples instanceof Int16Array) ? samples
+                  : new Int16Array(samples.buffer || samples, samples.byteOffset || 0, Math.floor(samples.byteLength / 2));
+        f32 = new Float32Array(i16.length);
+        for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
+      }
+      const now = audioCtx.currentTime;
+      const buf = audioCtx.createBuffer(1, f32.length, sampleRate || audioCtx.sampleRate);
+      buf.getChannelData(0).set(f32);
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ext.an);
+      // a new run (first chunk, or after the queue ran dry) starts after the lead
+      if (ext.next < now) ext.next = now + Math.max(0, num(opts.delay, 0.05));
+      src.start(ext.next);
+      ext.next += buf.duration;
+      return ext.next - now;
+    }
+
+    function detachAudio() {
+      if (!ext) return;
+      if (ext.node) { try { ext.node.disconnect(ext.an); } catch (_) {} }
+      if (ext.keep) { try { ext.keep.stop(); ext.keep.disconnect(); } catch (_) {} }
+      try { ext.an.disconnect(); } catch (_) {}
+      try { ext.sink.disconnect(); } catch (_) {}
+      ext = null;
+      if (!isPlayingFlag) silenceLips();
     }
 
     function getPlaybackTime() {
@@ -1334,20 +1525,27 @@
       return pausedAt || 0;
     }
 
+    let _anData = null, _anRate = 48000;   // the frame being analysed
     function freqEnergyHz(lo, hi) {
-      if (!audioFreqData) return 0;
-      const sr = audioCtx.sampleRate;
-      const binHz = sr / 2 / audioFreqData.length;
+      if (!_anData) return 0;
+      const binHz = _anRate / 2 / _anData.length;
       const i0 = Math.max(0, Math.floor(lo / binHz));
-      const i1 = Math.min(audioFreqData.length - 1, Math.ceil(hi / binHz));
+      const i1 = Math.min(_anData.length - 1, Math.ceil(hi / binHz));
       let s = 0, n = 0;
-      for (let i = i0; i <= i1; i++) { s += audioFreqData[i]; n++; }
+      for (let i = i0; i <= i1; i++) { s += _anData[i]; n++; }
       return n ? (s / n) / 255 : 0;
     }
 
     function analyzeAudioFrame() {
-      if (!analyser) return;
-      analyser.getByteFrequencyData(audioFreqData);
+      // attached outside audio takes the lips while it is attached
+      let src = ext;
+      // a chunk stream whose queue has run dry is silence, whatever its analyser still holds
+      if (src && src.feed && src.an.context.currentTime > src.next + 0.05) src = null;
+      const an = src ? src.an : (isPlayingFlag ? analyser : null);
+      if (!an) { if (ext) silenceLips(); return; }
+      _anData = src ? src.data : audioFreqData;
+      _anRate = an.context.sampleRate;
+      an.getByteFrequencyData(_anData);
       // overall amplitude
       const eLow = freqEnergyHz(200, 700);
       const eMid = freqEnergyHz(700, 2000);
@@ -1461,6 +1659,12 @@
       config.irisColor = hex;
       if (irisMat) irisMat.emissiveColor = BABYLON.Color3.FromHexString(hex);
     }
+    function applyBackgroundColor(hex) {
+      if (!/^#[0-9a-f]{6}$/i.test(hex || '')) return;
+      config.backgroundColor = hex;
+      const c = hex2rgb(hex);
+      scene.clearColor = new BABYLON.Color4(c[0], c[1], c[2], 1);
+    }
 
     /* ── views ── */
     const VIEWS = {
@@ -1475,9 +1679,163 @@
       orbiting = false;
       const v = VIEWS[view];
       if (!v) return;
+      // a fixed view ends any behaviour framing (its dim and mood stay)
+      behGliding = false;
+      behName = null;
+      camera.target.y = 0;
       camera.alpha  = v.alpha;
       camera.beta   = v.beta;
       camera.radius = v.radius;
+    }
+
+    /* ── behaviours: named framing recipes ──
+       Each instance owns a copy of the recipe table, so one page can give
+       every face its own. The camera stays private: a behaviour is the only
+       way framing is asked for, and the glide is the library's. */
+    const behaviours = {};
+    for (const k of Object.keys(BEHAVIOURS)) behaviours[k] = Object.assign({}, BEHAVIOURS[k]);
+    let behGlide = 0.5;          // default seconds to settle (overridable per recipe / call)
+    let behGlideNow = 0.5;
+    let behName = null;
+    let behGliding = false;
+    let behBase = null;          // the lasting behaviour a transient one returns to
+    let behTimer = null;
+    let behPendingBack = null;   // where the pending transient returns to
+    let behHopAmp = 0, behHopT = 0;
+    let personaMood = activeMood;
+    const POSE_KEYS = ['yaw', 'pitch', 'zoom', 'dim', 'ty'];
+    const pose       = { yaw: 0, pitch: 0, zoom: 1, dim: 1, ty: 0 };
+    const poseTarget = { yaw: 0, pitch: 0, zoom: 1, dim: 1, ty: 0 };
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const num = (v, d) => (typeof v === 'number' && isFinite(v)) ? v : d;
+
+    function applyMood(name) {
+      if (!MOODS[name]) return;
+      activeMood = name;
+      for (const m of MOOD_NAMES) moodTargetWeights[m] = (m === name) ? 1 : 0;
+    }
+
+    /* brightness: a black foreground layer whose alpha is 1 − dim. In-engine,
+       so the host's canvas styles are left alone. */
+    let dimLayer = null;
+    function applyDim(v) {
+      const a = 1 - clamp(v, 0, 1);
+      if (a < 0.004) { if (dimLayer) dimLayer.isEnabled = false; return; }
+      if (!dimLayer) {
+        dimLayer = new BABYLON.Layer('wfDim', null, scene, false);
+        dimLayer.texture = BABYLON.RawTexture.CreateRGBATexture(
+          new Uint8Array([255, 255, 255, 255]), 1, 1, scene, false, false,
+          BABYLON.Texture.NEAREST_SAMPLINGMODE);
+        dimLayer.alphaBlendingMode = BABYLON.Engine.ALPHA_COMBINE;
+      }
+      dimLayer.isEnabled = true;
+      dimLayer.color = new BABYLON.Color4(0, 0, 0, a);
+    }
+
+    /* start every glide from where the camera really is — the user may have
+       dragged it, or setView() may have moved it. */
+    function readCameraPose() {
+      const a = -(camera.alpha + Math.PI / 2);
+      pose.yaw   = Math.atan2(Math.sin(a), Math.cos(a));
+      pose.pitch = Math.PI / 2 - camera.beta;
+      pose.zoom  = BEHAVIOUR_RADIUS / Math.max(0.01, camera.radius);
+      pose.ty    = camera.target.y;
+    }
+
+    function setBehaviour(name, opts) {
+      opts = opts || {};
+      // a transient interrupted by another one still returns to the original place
+      const pending = behTimer ? behPendingBack : null;
+      clearTimeout(behTimer);
+      behTimer = null;
+      behPendingBack = null;
+      if (name == null) {
+        // release: brightness and focus return, the camera stays where it is
+        readCameraPose();
+        poseTarget.yaw = pose.yaw; poseTarget.pitch = pose.pitch; poseTarget.zoom = pose.zoom;
+        poseTarget.dim = 1; poseTarget.ty = 0;
+        behGlideNow = num(opts.glide, behGlide);
+        behName = null; behBase = null; behGliding = true;
+        return true;
+      }
+      const r = (typeof name === 'object') ? name : behaviours[name];
+      if (!r) return false;
+      const label = (typeof name === 'string') ? name : '(custom)';
+      const lasts = num(opts.for, num(r.for, 0));
+      // what a transient behaviour comes back to: the lasting one before it,
+      // or — when there was none — the framing and mood it interrupted
+      let back = behBase || pending;
+      readCameraPose();
+      if (!back) back = { recipe: { yaw: pose.yaw, pitch: pose.pitch, zoom: pose.zoom, dim: pose.dim, _ty: pose.ty, mood: activeMood }, opts: {} };
+      if (!(lasts > 0)) behBase = { recipe: name, opts: { side: opts.side, glide: opts.glide } };
+
+      orbiting = false;
+      const side = opts.side < 0 ? -1 : 1;
+      poseTarget.yaw   = num(r.yaw, 0) * side;
+      poseTarget.pitch = num(r.pitch, 0);
+      poseTarget.zoom  = clamp(num(r.zoom, 1), 0.3, 6);
+      poseTarget.dim   = clamp(num(r.dim, 1), 0, 1);
+      poseTarget.ty    = num(r._ty, num(FOCUS_Y[r.focus], 0));
+      behGlideNow = num(opts.glide, num(r.glide, behGlide));
+      // the wheel-zoom limits must not clip a close-up or a distant shot
+      const radius = BEHAVIOUR_RADIUS / poseTarget.zoom;
+      camera.lowerRadiusLimit = Math.min(camera.lowerRadiusLimit, radius);
+      camera.upperRadiusLimit = Math.max(camera.upperRadiusLimit, radius);
+      // a hop already in the air is left to land
+      if (num(r.hop, 0)) { behHopAmp = r.hop; behHopT = 0; }
+      if (r.mood) applyMood(r.mood === 'persona' ? personaMood : r.mood);
+      behName = label;
+      behGliding = true;
+      if (lasts > 0) {
+        behPendingBack = back;
+        behTimer = setTimeout(() => {
+          behTimer = null;
+          behPendingBack = null;
+          if (_disposed) return;
+          const keep = behBase;
+          setBehaviour(back.recipe, back.opts);
+          behBase = keep;
+          if (!keep) behName = null;
+        }, lasts * 1000);
+      }
+      return true;
+    }
+
+    function defineBehaviours(input) {
+      if (!input || typeof input !== 'object') return;
+      const recipes = (input.recipes && typeof input.recipes === 'object') ? input.recipes : input;
+      if (input.recipes && typeof input.glide_s === 'number') behGlide = Math.max(0, input.glide_s);
+      for (const k of Object.keys(recipes)) {
+        const r = recipes[k];
+        if (r && typeof r === 'object') behaviours[k] = Object.assign({}, r);
+      }
+    }
+
+    function updateBehaviour(dt) {
+      if (behHopAmp) {
+        behHopT += dt;
+        if (behHopT > 1.2) { behHopAmp = 0; faceRoot.position.y = 0; }
+        else faceRoot.position.y = behHopAmp * Math.abs(Math.sin(Math.PI * behHopT / 0.3)) * Math.exp(-3.5 * behHopT);
+      }
+      if (!behGliding) return;
+      // exponential approach: ~95% of the way after behGlideNow seconds
+      const k = 1 - Math.exp(-dt / Math.max(0.02, behGlideNow / 3));
+      let rest = 0;
+      for (const key of POSE_KEYS) {
+        const d = poseTarget[key] - pose[key];
+        pose[key] += d * k;
+        rest = Math.max(rest, Math.abs(d));
+      }
+      if (rest < 0.0015) {
+        // settled: stop writing the camera, so pointer drag works again
+        for (const key of POSE_KEYS) pose[key] = poseTarget[key];
+        behGliding = false;
+      }
+      camera.alpha    = -Math.PI / 2 - pose.yaw;
+      camera.beta     = Math.PI / 2 - pose.pitch;
+      camera.radius   = BEHAVIOUR_RADIUS / pose.zoom;
+      camera.target.y = pose.ty;
+      applyDim(pose.dim);
     }
 
     function applyGlow() {
@@ -1497,6 +1855,7 @@
     if (config.noseColor)  applyNoseColor(config.noseColor);
     applyPupilColor(config.pupilColor);
     applyIrisColor(config.irisColor);
+    applyBackgroundColor(config.backgroundColor);
     applyMinimalSubVisibility();
     applyGlow();
     setView(config.cameraView);
@@ -1510,10 +1869,11 @@
       const dt = Math.min(0.05, (now - lastT) / 1000);
       lastT = now;
       idleAnimate(dt);
-      if (isPlayingFlag) analyzeAudioFrame();
+      if (isPlayingFlag || ext) analyzeAudioFrame();
       updateMoodBlend(dt);
       smoothChannels(dt);
       updateFace();
+      updateBehaviour(dt);
       if (orbiting) camera.alpha += dt * 0.3;
       scene.render();
     });
@@ -1543,7 +1903,13 @@
         rc.noseLineThickness !== undefined ||
         rc.browLineThickness !== undefined;
 
+      const prevBackground = config.backgroundColor;
       Object.assign(config, rc);
+      // an unusable colour must not replace the stored one
+      if (rc.backgroundColor !== undefined) {
+        config.backgroundColor = prevBackground;
+        applyBackgroundColor(rc.backgroundColor);
+      }
       if (p.lineColor) applyLineColor(p.lineColor);
       if (p.pupilColor) applyPupilColor(p.pupilColor);
       if (rc.baseColor)  applyBaseColor(rc.baseColor);
@@ -1581,8 +1947,9 @@
         for (const ch of CHANNEL_NAMES) if (p.channelGains[ch] !== undefined) channelGains[ch] = p.channelGains[ch];
       }
       if (p.activeMood && MOODS[p.activeMood]) {
-        activeMood = p.activeMood;
-        for (const m of MOOD_NAMES) moodTargetWeights[m] = (m === activeMood) ? 1 : 0;
+        // the preset's mood is the face's own ('persona' in a behaviour recipe)
+        personaMood = p.activeMood;
+        applyMood(p.activeMood);
       }
     }
 
@@ -1601,24 +1968,52 @@
       stop() {
         pausedAt = 0;
         stopPlayback();
-        for (const v of Object.keys(VISEME_PARAMS)) stateTarget['viseme_' + v] = 0;
-        stateTarget.viseme_sil = 1;
-        stateTarget.jawOpen = 0;
+        if (!ext) silenceLips();
       },
       setLoop(b)        { config.loopAudio = !!b; if (audioSource) audioSource.loop = !!b; },
+      /* muted playback still drives the lips: use it when the same speech is
+         sounded somewhere else (another element, another process). */
+      setMuted(b)       { muted = !!b; if (outGain) outGain.gain.value = muted ? 0 : 1; },
+      isMuted()         { return muted; },
+      attachAudio,
+      pushAudio,
+      detachAudio,
       setMood(name) {
         if (!MOODS[name]) return;
-        activeMood = name;
-        for (const m of MOOD_NAMES) moodTargetWeights[m] = (m === name) ? 1 : 0;
+        personaMood = name;
+        applyMood(name);
       },
-      setChannel(name, value) {
+      setBehaviour,
+      defineBehaviours,
+      getBehaviour()      { return behName; },
+      getBehaviourNames() { return Object.keys(behaviours); },
+      getBehaviours() {
+        const out = {};
+        for (const k of Object.keys(behaviours)) out[k] = Object.assign({}, behaviours[k]);
+        return out;
+      },
+      /* opts.hold   keep the value until releaseChannel(name) (default: ~1.2s)
+         opts.smooth ease to the value with the channel's own smoothing instead
+                     of jumping — for values pushed at a low rate */
+      setChannel(name, value, opts) {
         if (!CHANNELS[name]) return;
         const r = CHANNELS[name].range;
         const v = Math.max(r[0], Math.min(r[1], value));
-        stateTarget[name] = v; state[name] = v;
+        const smooth = !!(opts && opts.smooth);
+        manualValue[name] = v;
+        manualSmooth[name] = smooth;
+        stateTarget[name] = v;
+        if (!smooth) state[name] = v;
         manualLock[name] = true;
         clearTimeout(manualLock['_t_' + name]);
-        manualLock['_t_' + name] = setTimeout(() => { manualLock[name] = false; }, 1200);
+        manualLock['_t_' + name] = (opts && opts.hold)
+          ? null
+          : setTimeout(() => { manualLock[name] = false; }, 1200);
+      },
+      releaseChannel(name) {
+        if (!CHANNELS[name]) return;
+        clearTimeout(manualLock['_t_' + name]);
+        manualLock[name] = false;
       },
       setView,
       loadPreset,
@@ -1627,6 +2022,19 @@
          color pickers) where you change one field per call. */
       setRenderConfig(partial) { loadPreset({ renderConfig: partial }); },
       getRenderConfig() { return Object.assign({}, config); },
+      /* the face's whole design as a preset — the JSON loadPreset() takes.
+         Store it, and load it back to get the same face. */
+      getPreset() {
+        const gains = {};
+        for (const ch of CHANNEL_NAMES) if (channelGains[ch] !== 1) gains[ch] = channelGains[ch];
+        return {
+          version: 'wireface-v010',
+          createdAt: new Date().toISOString(),
+          renderConfig: Object.assign({}, config),
+          channelGains: gains,
+          activeMood: personaMood,
+        };
+      },
       /* live channel introspection — useful for editor channel meters that
          display the smoothed audio-driven values and gain knobs. */
       getChannel(name)       { return state[name] !== undefined ? state[name] : 0; },
@@ -1641,6 +2049,9 @@
       getActiveMood() { return activeMood; },
       dispose() {
         _disposed = true;
+        clearTimeout(behTimer);
+        for (const n of CHANNEL_NAMES) clearTimeout(manualLock['_t_' + n]);
+        try { detachAudio(); } catch (_) {}
         try { stopPlayback(); } catch (_) {}
         if (audioCtx) { try { audioCtx.close(); } catch (_) {} audioCtx = null; }
         window.removeEventListener('resize', onResize);

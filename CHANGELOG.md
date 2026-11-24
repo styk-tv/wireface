@@ -6,6 +6,62 @@ Versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-11-24
+
+Behaviours, stream input and stored designs — for pages that run faces from
+live events and streamed speech. Specified in
+[`SPEC.WIREFACE.BEHAVIOURS.v1.2`](SPEC.WIREFACE.BEHAVIOURS.v1.2.md). Additive:
+every 1.1.5 call keeps its signature.
+
+### Added
+- **Behaviours — named framing.** `setBehaviour(name, opts?)` glides a face
+  to a recipe of yaw, pitch, zoom, brightness and mood, the way `setMood`
+  fades an expression. No camera object is exposed. Built in: the states
+  `asleep` `parked` `idle` `waiting` `busy` `listen` `speak` `attend`
+  `important` `cut` and the shots `point` `distant` `away` `work` `jump`
+  `closeup` `closeup-eyes` `closeup-nose` `closeup-mouth`. `opts.side`
+  mirrors the turn (toward whoever holds the floor), `opts.for` makes any
+  behaviour transient — it returns to where the face was. `defineBehaviours`
+  adds or replaces recipes per instance; `getBehaviour`,
+  `getBehaviourNames`, `getBehaviours` read them back.
+- **Stream input.** `pushAudio(samples, sampleRate, opts?)` takes speech as
+  PCM chunks (Float32, Int16 or an int16 ArrayBuffer) as they arrive;
+  `attachAudio(source)` takes a `MediaStream` or an `AudioNode`;
+  `setMuted(true)` analyses loaded audio without sounding it. All three run
+  through the same analysis as `loadAudio`/`play`.
+- **`renderConfig.backgroundColor`** — the scene background, saved and
+  loaded with the preset; picker added to `examples/editor.html`.
+- **`getPreset()`** — the face's whole design as the JSON `loadPreset` takes.
+- **`setChannel(name, value, { hold, smooth })`** and **`releaseChannel`** —
+  hold a value until released; ease to a value instead of jumping.
+- **`examples/behaviours.html`** — four faces from the bundled presets, each
+  varied, with behaviours and chunk-streamed speech.
+
+### Fixed
+- **`setChannel` on a driven channel was overwritten in the frame it was
+  set** — head rotation (idle sway), eye look (saccades), the mood channels,
+  and visemes during playback. Manual values are now kept apart from the
+  driven targets and hold for the documented ~1.2 s. A held head pose keeps
+  the idle sway on top.
+- **Lips could freeze open when a stream went quiet.** An analyser whose
+  input stops can keep answering with its last spectrum; the attached and
+  chunk-stream paths keep it running and treat a dry chunk queue as silence.
+
+### Changed
+- `setView()` now recentres the shot. It only differs from 1.1.5 after a
+  close-up behaviour moved the shot centre.
+
+Verified with playwright on the bundled Kokoro TTS sample (6 s, 60 fps):
+
+| Lips driven by | Visemes active at once | Frames where the mouth changes | Mean jaw opening |
+|---|---|---|---|
+| `loadAudio` + `play` | 4.0 | 98% | 0.50 |
+| muted playback | 4.0 | 99% | 0.50 |
+| `attachAudio(MediaStream)` | 4.0 | 98% | 0.50 |
+| `attachAudio(AudioNode)` | 4.0 | 99% | 0.50 |
+| `pushAudio`, 50 ms chunks of 22.05 kHz int16 | 4.0 | 100% | 0.51 |
+| one loudness + one shape every 50 ms via `setChannel` | 1.0 | 29% | 0.00 |
+
 ## [1.1.5] — 2026-05-01
 
 ### Fixed

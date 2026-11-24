@@ -15,8 +15,8 @@
 - repo: <https://github.com/styk-tv/wireface>
 - npm: <https://www.npmjs.com/package/wireface>
 - one source file: [`wireface.js`](wireface.js)
-- two runnable examples: [`examples/demo.html`](examples/demo.html) (consumer), [`examples/editor.html`](examples/editor.html) (preset authoring)
-- two preset samples: [`examples/presets/`](examples/presets/)
+- three runnable examples: [`examples/demo.html`](examples/demo.html) (consumer), [`examples/behaviours.html`](examples/behaviours.html) (several faces, behaviours, streamed speech), [`examples/editor.html`](examples/editor.html) (preset authoring)
+- four preset samples: [`examples/presets/`](examples/presets/)
 - preset format: plain JSON (drop a `.json` saved by the editor onto a panel)
 - audio: any browser-decodable file (`mp3`, `wav`, `ogg`, `m4a`, `flac`, `aac`, `opus`)
 
@@ -86,6 +86,14 @@ interface WireFace {
   loadPreset(presetObject): void           // the JSON saved by the editor
   setRenderConfig(partial): void           // apply one-or-more renderConfig fields live
   getRenderConfig(): object                // snapshot of current renderConfig
+  getPreset(): object                      // the face's whole design — the JSON loadPreset() takes
+
+  // lips from audio that is not a loaded file (v1.2)
+  pushAudio(samples, sampleRate, opts?): number   // streamed PCM chunks; returns seconds queued
+  attachAudio(source): void                // a MediaStream or AudioNode; never made audible
+  detachAudio(): void
+  setMuted(bool): void                     // analyse the loaded audio without sounding it
+  isMuted(): boolean
 
   // transport
   play(fromOffset?: number): void
@@ -99,13 +107,22 @@ interface WireFace {
   // expression
   setMood(name): void                      // 'neutral'|'happy'|'sad'|'angry'|'fear'|'surprise'|'sleep'
   getActiveMood(): string
-  setChannel(name, value): void            // manual override (auto-releases after ~1.2s)
+  setChannel(name, value, opts?): void     // manual override (auto-releases after ~1.2s);
+                                           // opts { hold } keeps it, { smooth } eases to it
+  releaseChannel(name): void
   setChannelGain(name, gain): void
   getChannel(name): number                 // current smoothed value (0..1 or -1..1)
   getChannelTarget(name): number           // latest target before smoothing
   getChannelGain(name): number
   getChannelNames(): string[]
   getMoodNames(): string[]
+
+  // behaviours — named framing: yaw, pitch, zoom, brightness, mood (v1.2)
+  setBehaviour(name, opts?): boolean       // 'speak'|'listen'|'idle'|'busy'|'point'|'closeup'|'jump'|…
+  defineBehaviours(recipes): void          // add or replace recipes on this instance
+  getBehaviour(): string | null
+  getBehaviourNames(): string[]
+  getBehaviours(): object
 
   // camera
   setView(view): void                      // 'front'|'three-q'|'profile'|'orbit'
@@ -117,12 +134,29 @@ interface WireFace {
 
 Multiple instances are independent — see [`examples/demo.html`](examples/demo.html) for a two-panel example with per-panel drag/drop, transport buttons, and mood pills.
 
+### Behaviours, streamed speech, designs (v1.2)
+
+For a page that knows what is going on and wants the faces to show it:
+
+```js
+wf.loadPreset(design);                         // pick a design (background colour included)
+wf.setBehaviour('listen');                     // named framing — no camera code in your page
+wf.setBehaviour('idle', { side: -1 });         // turned toward whoever holds the floor
+wf.setBehaviour('jump');                       // hops for attention, then returns by itself
+wf.pushAudio(int16Chunk, 22050);               // speech as it streams in — lips match play()
+store(wf.getPreset());                         // keep this face's design
+```
+
+Built-in behaviours: `asleep` `parked` `idle` `waiting` `busy` `listen` `speak` `attend` `important` `cut`, and the shots `point` `distant` `away` `work` `jump` `closeup` `closeup-eyes` `closeup-nose` `closeup-mouth`. Recipes, rules, the stream input and the stored design format are specified in [`SPEC.WIREFACE.BEHAVIOURS.v1.2`](SPEC.WIREFACE.BEHAVIOURS.v1.2.md); [`examples/behaviours.html`](examples/behaviours.html) runs all of it with four faces.
+
 ---
 
 ## Preset JSON
 
-A preset is one plain object — exactly the shape produced by the editor's **save** button. Two examples ship with this repo:
+A preset is one plain object — exactly the shape produced by the editor's **save** button and by `getPreset()`. Four examples ship with this repo:
 
+- [`examples/presets/asset-8pgwi9.json`](examples/presets/asset-8pgwi9.json) — `17×23` red-wire face, heavy white brows, jaw pushed forward
+- [`examples/presets/asset-kln33e.json`](examples/presets/asset-kln33e.json) — blocky `9×9` low-poly red-wire face, wide spread
 - [`examples/presets/asset-th5rha.json`](examples/presets/asset-th5rha.json) — dense `21×21` red-wire face, glowy iris, deep eye sockets
 - [`examples/presets/asset-ydr7de.json`](examples/presets/asset-ydr7de.json) — sparse `7×9` low-poly blue-wire face, exaggerated mouth scale
 
@@ -167,6 +201,7 @@ A preset is one plain object — exactly the shape produced by the editor's **sa
 | **style** | `lineColor` | hex | wire color |
 |  | `baseColor` | hex | mesh base color |
 |  | `fadeColor` | hex | depth-fade target |
+|  | `backgroundColor` | hex | scene background behind the face (v1.2, default `#000000`) |
 |  | `depthFade` | `0..1` | depth attenuation strength |
 |  | `pupilColor` / `irisColor` / `irisSize` | hex / `1..4` | eye styling |
 |  | `browColor` | hex | brow line color |
@@ -189,7 +224,7 @@ noseSneer
 headRotateX headRotateY headRotateZ
 ```
 
-Manual overrides via `setChannel(name, value)` lock the channel for ~1.2s, then auto-release back to audio-driven control.
+Manual overrides via `setChannel(name, value)` lock the channel for ~1.2s, then auto-release back to its driver. `setChannel(name, value, { hold: true })` keeps the value until `releaseChannel(name)`; `{ smooth: true }` eases to it instead of jumping.
 
 ### Moods
 
@@ -225,6 +260,7 @@ Crossfade time is controlled by `renderConfig.moodTransitionTime`.
 | File | Purpose |
 |---|---|
 | [`examples/demo.html`](examples/demo.html) | minimal **library consumer** — two side-by-side instances, drag-drop preset/audio, transport buttons, mood pills. Use this as your reference for embedding wireface into your own page. |
+| [`examples/behaviours.html`](examples/behaviours.html) | **several faces driven by events** — four designs from the bundled presets, each varied and with its own background; `setBehaviour` states and shots; speech streamed as PCM chunks through `pushAudio`. |
 | [`examples/editor.html`](examples/editor.html) | full **preset authoring** UI — sliders, knobs, color pickers, mood weights, save/load. Currently self-contained (ships its own copy of the rendering pipeline) for offline authoring; produces the `.json` shape the library consumes. |
 
 To run them locally:
