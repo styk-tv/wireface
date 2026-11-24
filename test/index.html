@@ -241,6 +241,7 @@ group('stream', async t => {
   await sample();
   const m = mount(); const { wf } = m;
   wf.loadPreset(await preset('asset-8pgwi9'));
+  wf.setRenderConfig({ glow: false });      // this group measures lips; glow is what makes software rendering crawl
   const g = n => wf.getChannel(n);
   const closed = () => g('jawOpen') < 0.03 && g('viseme_sil') > 0.95;
   const MS = 3000;
@@ -281,12 +282,13 @@ group('stream', async t => {
   t.check('…and closes at the end', await until(closed, 5000), [g('jawOpen'), g('viseme_sil')]);
 
   // the three sample forms
-  const tone = new Float32Array(4410); for (let i = 0; i < tone.length; i++) tone[i] = Math.sin(i * 2 * Math.PI * 440 / RATE) * 0.4;
+  // one second each: long enough to be seen even at a few frames a second (software rendering)
+  const tone = new Float32Array(RATE); for (let i = 0; i < tone.length; i++) tone[i] = Math.sin(i * 2 * Math.PI * 440 / RATE) * 0.4;
   const i16 = new Int16Array(tone.length); for (let i = 0; i < tone.length; i++) i16[i] = tone[i] * 32767;
   for (const [label, data] of [['Float32Array', tone], ['Int16Array', i16], ['ArrayBuffer of int16', i16.buffer]]) {
     const q = wf.pushAudio(data, RATE);
-    t.check(`${label}: queued and heard by the analysis`, near(q, 0.25, 0.02) && await until(() => g('viseme_sil') < 0.5, 2000), q);
-    await until(closed, 3000);
+    t.check(`${label}: queued and heard by the analysis`, near(q, 1.05, 0.03) && await until(() => g('viseme_sil') < 0.5, 3000), [q, g('viseme_sil')]);
+    await until(closed, 5000);
   }
   t.check('an empty chunk only reports the queue', wf.pushAudio(new Int16Array(0), RATE) === 0 && wf.pushAudio(new ArrayBuffer(0), RATE) === 0);
 
@@ -426,6 +428,7 @@ group('instances', async t => {
   await sample();
   const a = mount(), b = mount();
   a.wf.loadPreset(await preset('asset-th5rha')); b.wf.loadPreset(await preset('asset-ydr7de'));
+  a.wf.setRenderConfig({ glow: false }); b.wf.setRenderConfig({ glow: false });
   const stop = feeder(a.wf, 1);
   a.wf.setBehaviour('speak', { glide: 0.1 }); b.wf.setBehaviour('idle', { glide: 0.1 }); b.wf.setMood('happy');
   await until(() => a.wf.getChannel('jawOpen') > 0.2, 3000);
