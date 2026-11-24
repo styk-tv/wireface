@@ -187,6 +187,11 @@ the page.
 
 ### 3.1 `pushAudio(samples, sampleRate, opts?) → secondsQueued`
 
+> **Superseded in 1.3** by [`SPEC.WIREFACE.STREAM.v1.3`](SPEC.WIREFACE.STREAM.v1.3.md):
+> absolute play times, runs, cutting in, events, and lips that run ahead of
+> the sound. What is written below still holds for a caller that passes only
+> `audible` and `delay`.
+
 - `samples`: `Float32Array` (−1 … 1), `Int16Array`, or an `ArrayBuffer` of
   little-endian int16. Mono.
 - `sampleRate`: the chunk's own rate (e.g. `22050`, `24000`); the audio context

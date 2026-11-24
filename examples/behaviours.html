@@ -10,7 +10,11 @@
                   jump …) with setBehaviour(name); the library glides the framing,
                   brightness and mood. No camera is touched from here.
     3. STREAM     speech arrives as PCM chunks, not as a file: pushAudio(chunk,
-                  rate) feeds them to the same lip analysis loadAudio()/play() uses.
+                  rate, { run, end }) analyses each chunk as it lands and puts
+                  the lips on a clock — slightly ahead of the sound, closed as it
+                  ends. A person cutting in is cutAudio().
+    4. EVENTS     the page does not guess who is speaking: speechstart and
+                  speechend come from what the lips actually do.
 
   Serve the repo root (npm run demo) and open /examples/behaviours.html.
 -->
@@ -80,13 +84,16 @@ async function mount(design, i) {
   wf.setRenderConfig(design.vary);                        // …and make it this face's own
   const face = { wf, el, label: el.querySelector('.tag span'), design };
   el.addEventListener('click', () => { floor = i; arrange(); });
+  // 4. EVENTS — the stage follows the lips, not a timer
+  wf.on('speechstart', arrange);
+  wf.on('speechend', arrange);
   return face;
 }
 
 /* 2. BEHAVIOURS — one line per face says what is going on. The floor face
       speaks or listens; the others idle, turned toward it (side). */
-let speaking = false;
 function arrange() {
+  const speaking = faces.some(f => f.wf.isSpeaking());
   faces.forEach((f, i) => {
     f.el.classList.toggle('floor', i === floor);
     if (i === floor) f.wf.setBehaviour(speaking ? 'speak' : 'listen');
@@ -97,9 +104,10 @@ setInterval(() => faces.forEach(f => { f.label.textContent = f.wf.getBehaviour()
 
 /* 3. STREAM — speech as PCM chunks. Here the chunks are cut from the bundled
       sample to stand in for a TTS stream: 50 ms of 22.05 kHz int16 at a time,
-      handed to the floor face as they "arrive". */
+      handed to the floor face as they "arrive". Each utterance is a run: its
+      id travels with every chunk, and its last chunk says so. */
 const RATE = 22050, CHUNK = Math.round(RATE * 0.05);
-let pcm = null, cursor = 0, timer = null, silent = false;
+let pcm = null, cursor = 0, timer = null, silent = false, run = 0;
 const EMPTY = new Int16Array(0);
 
 async function loadPcm() {
@@ -116,20 +124,21 @@ function pump() {
   while (ahead < 0.15 && cursor < pcm.length) {
     const chunk = pcm.subarray(cursor, cursor + CHUNK);
     cursor += CHUNK;
-    ahead = faces[floor].wf.pushAudio(chunk, RATE, { audible: !silent });
+    ahead = faces[floor].wf.pushAudio(chunk, RATE, { audible: !silent, run: 'utterance-' + run, end: cursor >= pcm.length });
   }
-  if (cursor >= pcm.length) stopStream();
+  if (cursor >= pcm.length) { clearInterval(timer); timer = null; cursor = 0; showStream(); }   // it plays out, then speechend
 }
+const showStream = () => { document.getElementById('stream').textContent = timer ? '■ cut in' : '▶ stream speech'; };
 async function startStream() {
   if (!pcm) await loadPcm();
-  speaking = true; arrange();
+  run++;
   timer = setInterval(pump, 40); pump();
-  document.getElementById('stream').textContent = '■ stop stream';
+  showStream();
 }
-function stopStream() {
+function stopStream() {                       // a person cut in: drop what is queued, now
   clearInterval(timer); timer = null; cursor = 0;
-  speaking = false; arrange();
-  document.getElementById('stream').textContent = '▶ stream speech';
+  faces.forEach(f => f.wf.cutAudio());
+  showStream();
 }
 document.getElementById('stream').onclick = () => timer ? stopStream() : startStream();
 document.getElementById('silent').onclick = e => { silent = !silent; e.target.textContent = 'silent: ' + (silent ? 'on' : 'off'); e.target.classList.toggle('on', silent); };

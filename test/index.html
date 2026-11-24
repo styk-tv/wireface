@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<!--
+  wireface — the test suite. Runs in a real browser, against the real library.
+
+    npm test              headless, via test/run.mjs
+    npm run test:min      the same checks against dist/wireface.min.js
+    or serve the repo and open /test/index.html (add ?min=1, ?only=stream)
+
+  Every group builds its own instance on its own canvas and disposes it.
+  Results land in the table below and in window.__wf for the runner.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>wireface — tests</title>
+<style>
+  body { margin: 0; background: #0b0b0b; color: #ddd; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #stage { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px; }
+  #stage canvas { width: 240px; height: 240px; background: #000; }
+  #log { padding: 8px 12px; white-space: pre-wrap; line-height: 1.5; }
+  .ok { color: #7c7; } .bad { color: #f66; } .head { color: #ffeb3b; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="log"></div>
+<script src="https://cdn.jsdelivr.net/npm/babylonjs@9/babylon.js"></script>
+<script>
+  const Q = new URLSearchParams(location.search);
+  document.write('<script src="' + (Q.get('min') ? '../dist/wireface.min.js' : '../wireface.js') + '"><\/script>');
+</script>
+<script>
+const WF = window.__wf = { results: [], measurements: {}, done: false };
+const ONLY = Q.get('only') || '';
+const logEl = document.getElementById('log');
+const say = (text, cls) => { const d = document.createElement('div'); d.textContent = text; if (cls) d.className = cls; logEl.appendChild(d); };
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const frame = () => new Promise(r => requestAnimationFrame(r));
+/* wait until fn() is truthy; never a fixed sleep where a condition will do — CI renders slowly */
+async function until(fn, ms = 6000) {
+  const t0 = performance.now();
+  while (performance.now() - t0 < ms) { if (fn()) return true; await frame(); }
+  return !!fn();
+}
+const near = (a, b, e = 0.01) => Math.abs(a - b) <= e;
+
+const groups = [];
+const group = (name, fn) => groups.push({ name, fn });
+
+/* a fresh instance + its scene + camera, on its own canvas */
+function mount(size = 240) {
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  document.getElementById('stage').appendChild(canvas);
+  const wf = createWireface(canvas);
+  const scene = BABYLON.EngineStore.LastCreatedScene;
+  return { wf, canvas, scene, cam: scene.activeCamera, root: scene.getTransformNodeByName('faceRoot') };
+}
+/* one rendered frame's pixel, as [r,g,b] — read inside the frame, the buffer is not preserved */
+function pixel(m, x, y) {
+  return new Promise(res => m.scene.onAfterRenderObservable.addOnce(() => {
+    const t = document.createElement('canvas'); t.width = m.canvas.width; t.height = m.canvas.height;
+    const g = t.getContext('2d'); g.drawImage(m.canvas, 0, 0);
+    const d = g.getImageData(x, y, 1, 1).data; res([d[0], d[1], d[2]]);
+  }));
+}
+const preset = async name => { const p = await fetch('../examples/presets/' + name + '.json').then(r => r.json()); return Array.isArray(p) ? p[0] : p; };
+
+let sampleBytes = null, samplePcm = null;
+const RATE = 22050;
+async function sample() {
+  if (!sampleBytes) {
+    sampleBytes = await fetch('../examples/Wireface-001-kokoro-santa.mp3').then(r => r.arrayBuffer());
+    const buf = await new OfflineAudioContext(1, 1, RATE).decodeAudioData(sampleBytes.slice(0));
+    samplePcm = buf.getChannelData(0);
+  }
+  return { bytes: sampleBytes, pcm: samplePcm };
+}
+/* how alive the mouth is over `ms`: the three numbers the changelog quotes */
+async function lips(wf, ms) {
+  const names = wf.getChannelNames().filter(n => n.startsWith('viseme_') && n !== 'viseme_sil');
+  let frames = 0, voiced = 0, changed = 0, active = 0, jaw = 0, prev = null;
+  const t0 = performance.now();
+  while (performance.now() - t0 < ms) {
+    await frame();
+    const v = names.map(n => wf.getChannel(n));
+    frames++;
+    if (wf.getChannel('viseme_sil') < 0.5 && v.some(x => x > 0.05)) { voiced++; active += v.filter(x => x > 0.05).length; jaw += wf.getChannel('jawOpen'); }
+    if (prev && v.some((x, i) => Math.abs(x - prev[i]) > 1e-4)) changed++;
+    prev = v;
+  }
+  return { frames, voiced, active: +(active / Math.max(1, voiced)).toFixed(2), changed: Math.round(100 * changed / Math.max(1, frames - 1)), jaw: +(jaw / Math.max(1, voiced)).toFixed(3) };
+}
+/* feed the sample as 50 ms chunks, paced like a sender, until stop() */
+function feeder(wf, fromSeconds, opts) {
+  const { pcm } = { pcm: samplePcm }, EMPTY = new Int16Array(0), N = Math.round(RATE * 0.05);
+  let cur = Math.round(fromSeconds * RATE);
+  const tick = () => { let ahead = wf.pushAudio(EMPTY, RATE); while (ahead < 0.15 && cur < pcm.length) { ahead = wf.pushAudio(pcm.subarray(cur, cur + N), RATE, opts); cur += N; } };
+  const iv = setInterval(tick, 40); tick();
+  return () => clearInterval(iv);
+}
+
+/* ───────────────────────────── groups ───────────────────────────── */
+
+group('api', async t => {
+  const m = mount(); const { wf } = m;
+  const v115 = ['loadAudio','loadPreset','setRenderConfig','getRenderConfig','play','pause','stop','setMood','setChannel','setChannelGain',
+    'getChannel','getChannelTarget','getChannelGain','getChannelNames','getMoodNames','setLoop','setView','isPlaying','getDuration','getPosition','getActiveMood','dispose'];
+  t.check('every 1.1.5 call is still there', v115.every(k => typeof wf[k] === 'function'), v115.filter(k => typeof wf[k] !== 'function'));
+  const v130 = ['cutAudio', 'isSpeaking', 'on'];
+  t.check('every 1.3 call is there', v130.every(k => typeof wf[k] === 'function'), v130.filter(k => typeof wf[k] !== 'function'));
+  const v120 = ['setBehaviour','defineBehaviours','getBehaviour','getBehaviourNames','getBehaviours','pushAudio','attachAudio','detachAudio','setMuted','isMuted','getPreset','releaseChannel'];
+  t.check('every 1.2 call is there', v120.every(k => typeof wf[k] === 'function'), v120.filter(k => typeof wf[k] !== 'function'));
+  const names = wf.getBehaviourNames();
+  const want = ['asleep','parked','idle','waiting','busy','listen','speak','attend','important','cut','point','distant','away','work','jump','closeup','closeup-eyes','closeup-nose','closeup-mouth'];
+  t.check('the 19 built-in behaviours', want.every(n => names.includes(n)) && names.length === want.length, names);
+  t.check('30 channels, 7 moods', wf.getChannelNames().length === 30 && wf.getMoodNames().length === 7, [wf.getChannelNames().length, wf.getMoodNames().length]);
+  t.check('a new face: black background, no behaviour, neutral', wf.getRenderConfig().backgroundColor === '#000000' && wf.getBehaviour() === null && wf.getActiveMood() === 'neutral');
+  wf.dispose();
+});
+
+group('behaviours', async t => {
+  const m = mount(); const { wf, cam, root } = m;
+  wf.loadPreset(await preset('asset-8pgwi9'));
+  const G = { glide: 0.12 };
+  const at = (yaw, pitch, zoom, ty = 0) => near(cam.alpha, -Math.PI / 2 - yaw) && near(cam.beta, Math.PI / 2 - pitch) && near(cam.radius, 3.3 / zoom) && near(cam.target.y, ty);
+  const where = () => [cam.alpha, cam.beta, cam.radius, cam.target.y].map(v => +v.toFixed(3));
+
+  t.check('an unknown name returns false and changes nothing', wf.setBehaviour('nope') === false && wf.getBehaviour() === null);
+  t.check('a known name returns true', wf.setBehaviour('attend', G) === true && wf.getBehaviour() === 'attend');
+  t.check('attend: framing and mood', await until(() => at(0, -0.06, 1.35)) && wf.getActiveMood() === 'happy', where());
+  wf.setBehaviour('idle', { side: -1, glide: 0.12 });
+  t.check('side −1 mirrors the turn', await until(() => at(-0.45, 0, 0.9)), where());
+  wf.setBehaviour('idle', { side: 1, glide: 0.12 });
+  t.check('side +1 turns the other way', await until(() => at(0.45, 0, 0.9)), where());
+  wf.setBehaviour('closeup-mouth', G);
+  t.check('a close-up moves the shot centre and the zoom', await until(() => at(0, 0, 2.8, -0.38)), where());
+  t.check('"persona" brings the face\'s own mood back', wf.getActiveMood() === 'neutral', wf.getActiveMood());
+  wf.setMood('sad'); wf.setBehaviour('busy', G); const busyMood = wf.getActiveMood(); wf.setBehaviour('speak', G);
+  t.check('a behaviour\'s mood does not replace the persona', busyMood === 'fear' && wf.getActiveMood() === 'sad', [busyMood, wf.getActiveMood()]);
+  wf.setMood('neutral');
+
+  const seen = []; const offBeh = wf.on('behaviour', e => seen.push(e.name + (e.returned ? '<' : '')));
+  wf.setBehaviour('closeup-eyes', G); await until(() => at(0, 0, 2.4, 0.2));
+  wf.setBehaviour('jump', { for: 0.5, glide: 0.12 });
+  t.check('jump hops', await until(() => root.position.y > 0.05, 1500), root.position.y);
+  t.check('jump is reported while it lasts', wf.getBehaviour() === 'jump');
+  t.check('a transient returns to the lasting behaviour', await until(() => wf.getBehaviour() === 'closeup-eyes' && at(0, 0, 2.4, 0.2)), [wf.getBehaviour(), where()]);
+  t.check('the hop lands at rest', await until(() => root.position.y === 0, 3000), root.position.y);
+  t.check('the behaviour event reports each change, and the return', seen.join(',') === 'closeup-eyes,jump,closeup-eyes<', seen); offBeh();
+
+  wf.setBehaviour('attend', { for: 0.4, glide: 0.12 }); await sleep(150);
+  wf.setBehaviour('jump', { for: 0.4, glide: 0.12 });
+  t.check('a transient interrupted by another still returns home', await until(() => wf.getBehaviour() === 'closeup-eyes' && at(0, 0, 2.4, 0.2)), [wf.getBehaviour(), where()]);
+
+  wf.setView('front');
+  t.check('setView ends the framing and recentres', wf.getBehaviour() === null && cam.target.y === 0 && near(cam.radius, 4.4), where());
+  wf.setView('three-q'); wf.setMood('happy');
+  const before = where();
+  wf.setBehaviour('jump', { for: 0.4, glide: 0.12 });
+  await until(() => wf.getBehaviour() === 'jump' && near(cam.radius, 3.3 / 1.3, 0.05));
+  t.check('with no lasting behaviour, a transient returns to the framing and mood it interrupted',
+    await until(() => wf.getBehaviour() === null && where().every((v, i) => near(v, before[i], 0.02))) && wf.getActiveMood() === 'happy', [before, where(), wf.getActiveMood()]);
+  wf.setMood('neutral');
+
+  wf.defineBehaviours({ recipes: { mine: { yaw: 0.2, zoom: 1.5, dim: 0.5, note: 'kept' } }, glide_s: 0.1 });
+  wf.setBehaviour('mine');
+  t.check('defineBehaviours: a file-shaped table, its glide, and unknown fields kept',
+    await until(() => at(0.2, 0, 1.5)) && wf.getBehaviours().mine.note === 'kept' && wf.getBehaviourNames().length === 20, where());
+  wf.setBehaviour({ yaw: 0.1, zoom: 2 }, G);
+  t.check('a one-off recipe object', await until(() => at(0.1, 0, 2)) && wf.getBehaviour() === '(custom)', [where(), wf.getBehaviour()]);
+  wf.setBehaviour('closeup', G); await until(() => at(0, 0, 2.2, -0.08));
+  t.check('zoom limits widen for a close-up', cam.lowerRadiusLimit <= 3.3 / 2.2 + 1e-6, cam.lowerRadiusLimit);
+
+  // brightness is drawn by the library, background included
+  wf.setRenderConfig({ backgroundColor: '#204060' });
+  wf.setBehaviour('listen', G); await until(() => at(0, -0.04, 1.1));
+  const lit = await pixel(m, 3, 3);
+  wf.setBehaviour('asleep', G); await until(() => at(0.6, 0.1, 0.8)); await sleep(120);
+  const dimmed = await pixel(m, 3, 3);
+  t.check('background colour is what is drawn', near(lit[0], 0x20, 3) && near(lit[1], 0x40, 3) && near(lit[2], 0x60, 3), lit);
+  t.check('dim 0.55 darkens the whole frame by that much', near(dimmed[2] / lit[2], 0.55, 0.06), [lit, dimmed]);
+  wf.setBehaviour(null, G); await sleep(500);
+  const back = await pixel(m, 3, 3);
+  t.check('setBehaviour(null) brings brightness back and leaves the camera', near(back[2], lit[2], 4) && near(cam.radius, 3.3 / 0.8, 0.02), [back, where()]);
+  wf.dispose();
+});
+
+group('designs', async t => {
+  const m = mount(); const { wf, scene } = m;
+  const names = ['asset-8pgwi9', 'asset-kln33e', 'asset-th5rha', 'asset-ydr7de'];
+  const looks = [];
+  for (const n of names) { wf.loadPreset(await preset(n)); await frame(); const c = wf.getRenderConfig(); looks.push([c.meshCols, c.meshRows, c.baseColor, c.spread].join('/')); }
+  t.check('the four bundled designs load and differ', new Set(looks).size === 4, looks);
+  wf.setRenderConfig({ backgroundColor: '#1a2b4c' });
+  t.check('backgroundColor reaches the scene', near(scene.clearColor.r, 0x1a / 255) && near(scene.clearColor.g, 0x2b / 255) && near(scene.clearColor.b, 0x4c / 255), scene.clearColor.asArray());
+  wf.setRenderConfig({ backgroundColor: 'red' });
+  t.check('a colour that is not #rrggbb is ignored', wf.getRenderConfig().backgroundColor === '#1a2b4c' && near(scene.clearColor.b, 0x4c / 255), wf.getRenderConfig().backgroundColor);
+  wf.loadPreset(await preset('asset-kln33e'));
+  t.check('a preset without a background keeps the current one', wf.getRenderConfig().backgroundColor === '#1a2b4c');
+  wf.setRenderConfig({ meshCols: 13, scaleEyes: 1.2 }); wf.setMood('angry'); wf.setChannelGain('jawOpen', 1.4);
+  const design = JSON.parse(JSON.stringify(wf.getPreset()));
+  t.check('getPreset has the preset shape and nothing else', JSON.stringify(Object.keys(design)) === JSON.stringify(['version', 'createdAt', 'renderConfig', 'channelGains', 'activeMood']), Object.keys(design));
+  t.check('channelGains holds only the gains that are not 1', JSON.stringify(design.channelGains) === '{"jawOpen":1.4}', design.channelGains);
+  const m2 = mount(120); m2.wf.loadPreset(design);
+  const a = wf.getRenderConfig(), b = m2.wf.getRenderConfig();
+  const diff = Object.keys(a).filter(k => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+  t.check('a stored design loads back as the same face', diff.length === 0 && m2.wf.getActiveMood() === 'angry' && m2.wf.getChannelGain('jawOpen') === 1.4, diff);
+  wf.setBehaviour('busy');
+  t.check('the stored mood is the persona, not a behaviour\'s mood', wf.getPreset().activeMood === 'angry', wf.getPreset().activeMood);
+  m2.wf.dispose(); wf.dispose();
+});
+
+group('channels', async t => {
+  const m = mount(); const { wf } = m;
+  const g = n => wf.getChannel(n);
+  wf.setChannel('headRotateY', 0.6); await sleep(200);
+  t.check('a head override holds (1.1.5 overwrote it in the same frame)', near(g('headRotateY'), 0.6, 0.07), g('headRotateY'));
+  t.check('…and releases by itself after ~1.2 s', await until(() => Math.abs(g('headRotateY')) < 0.15, 4000), g('headRotateY'));
+  wf.setChannel('eyeLookH', 0.9, { hold: true }); await sleep(1800);
+  t.check('{ hold } keeps a driven channel past 1.2 s', near(g('eyeLookH'), 0.9), g('eyeLookH'));
+  wf.releaseChannel('eyeLookH');
+  t.check('releaseChannel hands it back to its driver', await until(() => Math.abs(g('eyeLookH')) < 0.5, 4000), g('eyeLookH'));
+  wf.setChannel('browInnerUp', 0.9); await sleep(120);
+  t.check('a mood channel can be overridden', near(g('browInnerUp'), 0.9), g('browInnerUp'));
+  wf.setChannel('headRotateX', 0.5, { hold: true }); await sleep(100);
+  const s = []; for (let i = 0; i < 40; i++) { await frame(); s.push(g('headRotateX')); }
+  t.check('a held head keeps the idle sway on top', near(Math.max(...s), 0.5, 0.05) && new Set(s.map(v => v.toFixed(5))).size > 3, [Math.min(...s), Math.max(...s)]);
+  wf.releaseChannel('headRotateX');
+  wf.setChannel('jawOpen', 1, { smooth: true, hold: true }); await frame(); await frame();
+  const early = g('jawOpen');
+  t.check('{ smooth } eases instead of jumping', early > 0 && early < 0.95 && await until(() => g('jawOpen') > 0.98, 3000), [early, g('jawOpen')]);
+  wf.setChannel('viseme_aa', 5); t.check('values are clamped to the channel range', g('viseme_aa') === 1, g('viseme_aa'));
+  wf.setChannel('nope', 1); wf.releaseChannel('nope');
+  t.check('an unknown channel is ignored', wf.getChannel('nope') === 0);
+  wf.dispose();
+});
+
+group('stream', async t => {
+  await sample();
+  const m = mount(); const { wf } = m;
+  wf.loadPreset(await preset('asset-8pgwi9'));
+  const g = n => wf.getChannel(n);
+  const closed = () => g('jawOpen') < 0.03 && g('viseme_sil') > 0.95;
+  const MS = 3000;
+
+  // the reference: the library loads and plays the file (muted here: same analysis)
+  await wf.loadAudio(new Blob([sampleBytes]));
+  wf.setLoop(false); wf.setMuted(true); wf.play(1);
+  await until(() => g('viseme_sil') < 0.5, 3000);
+  const ref = await lips(wf, MS);
+  t.check('muted playback is muted, playing, and moves the lips', wf.isMuted() && wf.isPlaying() && ref.active >= 2.5 && ref.jaw > 0.3, ref);
+  wf.stop();
+  t.check('stop() closes the mouth', await until(closed, 3000), [g('jawOpen'), g('viseme_sil')]);
+  wf.setMuted(false);
+  WF.measurements['lips: loadAudio + play (reference)'] = ref;
+
+  // streamed chunks
+  let stop = feeder(wf, 1);
+  await until(() => g('viseme_sil') < 0.5, 3000);
+  const pushed = await lips(wf, MS);
+  WF.measurements['lips: pushAudio 50 ms chunks'] = pushed;
+  t.check('pushAudio moves the lips like the reference', pushed.active >= 2.5 && Math.abs(pushed.active - ref.active) < 0.8 && Math.abs(pushed.jaw - ref.jaw) < 0.12 && pushed.changed >= 85, [ref, pushed]);
+  t.check('the sender\'s queue stays shallow', wf.pushAudio(new Int16Array(0), RATE) < 0.3, wf.pushAudio(new Int16Array(0), RATE));
+  stop();
+  t.check('the mouth closes by itself when the stream runs dry', await until(closed, 3000), [g('jawOpen'), g('viseme_sil')]);
+
+  // interrupt and resume
+  const N = Math.round(RATE * 0.05);
+  const push = (from, secs, opts) => { for (let i = 0; i < secs * 20; i++) wf.pushAudio(samplePcm.subarray(Math.round(from * RATE) + i * N, Math.round(from * RATE) + (i + 1) * N), RATE, opts); };
+  push(1, 3); await until(() => g('jawOpen') > 0.2, 3000);
+  const queued = wf.pushAudio(new Int16Array(0), RATE);
+  wf.detachAudio();
+  t.check('detachAudio drops everything queued', queued > 1.5 && wf.pushAudio(new Int16Array(0), RATE) === 0, queued);
+  t.check('…and the mouth closes and stays closed', await until(closed, 2000) && (await sleep(600), closed()), [g('jawOpen'), g('viseme_sil')]);
+  push(4, 1.2, { delay: 0.4 });
+  await sleep(150);
+  t.check('a new run waits for its delay', closed(), [g('jawOpen'), g('viseme_sil')]);
+  t.check('…then speaks', await until(() => g('jawOpen') > 0.2, 3000), g('jawOpen'));
+  t.check('…and closes at the end', await until(closed, 5000), [g('jawOpen'), g('viseme_sil')]);
+
+  // the three sample forms
+  const tone = new Float32Array(4410); for (let i = 0; i < tone.length; i++) tone[i] = Math.sin(i * 2 * Math.PI * 440 / RATE) * 0.4;
+  const i16 = new Int16Array(tone.length); for (let i = 0; i < tone.length; i++) i16[i] = tone[i] * 32767;
+  for (const [label, data] of [['Float32Array', tone], ['Int16Array', i16], ['ArrayBuffer of int16', i16.buffer]]) {
+    const q = wf.pushAudio(data, RATE);
+    t.check(`${label}: queued and heard by the analysis`, near(q, 0.25, 0.02) && await until(() => g('viseme_sil') < 0.5, 2000), q);
+    await until(closed, 3000);
+  }
+  t.check('an empty chunk only reports the queue', wf.pushAudio(new Int16Array(0), RATE) === 0 && wf.pushAudio(new ArrayBuffer(0), RATE) === 0);
+
+  // attached sources
+  const ctx = new AudioContext();
+  const buf = await ctx.decodeAudioData(sampleBytes.slice(0));
+  let src = ctx.createBufferSource(); src.buffer = buf;
+  const dest = ctx.createMediaStreamDestination(); src.connect(dest);
+  wf.attachAudio(dest.stream); src.start(0, 1);
+  await until(() => g('viseme_sil') < 0.5, 3000);
+  const stream = await lips(wf, MS);
+  WF.measurements['lips: attachAudio(MediaStream)'] = stream;
+  t.check('attachAudio(MediaStream) moves the lips like the reference', stream.active >= 2.5 && Math.abs(stream.jaw - ref.jaw) < 0.12, [ref, stream]);
+  src.stop(); wf.detachAudio();
+  t.check('detachAudio closes the mouth', await until(closed, 3000));
+  src = ctx.createBufferSource(); src.buffer = buf; const tap = ctx.createGain(); src.connect(tap);
+  wf.attachAudio(tap); src.start(0, 1, 1.2);
+  t.check('attachAudio(AudioNode) from another context moves the lips', await until(() => g('jawOpen') > 0.2, 3000), g('jawOpen'));
+  t.check('…and the mouth closes when that source simply ends', await until(closed, 5000), [g('jawOpen'), g('viseme_sil')]);
+  wf.detachAudio(); await ctx.close();
+  let threw = false; try { wf.attachAudio({}); } catch (e) { threw = /MediaStream or an AudioNode/.test(e.message); }
+  t.check('attachAudio refuses what is not a source', threw);
+  wf.dispose();
+});
+
+group('timing', async t => {
+  // a silent stream must not need an AudioContext: count every one that is made
+  const RealAC = window.AudioContext; let made = 0;
+  window.AudioContext = function (...a) { made++; return new RealAC(...a); };
+  window.AudioContext.prototype = RealAC.prototype;
+  const m = mount(); const { wf } = m;
+  const g = n => wf.getChannel(n);
+  const closed = () => g('jawOpen') < 0.03 && g('viseme_sil') > 0.95;
+
+  // how coarse is this browser's clock for us: one frame
+  const ft = []; let last = performance.now();
+  for (let i = 0; i < 40; i++) { await frame(); const n = performance.now(); ft.push(n - last); last = n; }
+  ft.sort((a, b) => a - b); const F = ft[20];
+  WF.measurements['frame interval, ms'] = +F.toFixed(1);
+
+  // a steady vowel-like tone: its first and last samples are loud, so onset and end are exact
+  const voice = secs => { const x = new Float32Array(Math.round(secs * RATE));
+    for (let i = 0; i < x.length; i++) { const tt = i / RATE; x[i] = 0.14 * (Math.sin(2 * Math.PI * 300 * tt) + Math.sin(2 * Math.PI * 600 * tt) + Math.sin(2 * Math.PI * 1200 * tt) + Math.sin(2 * Math.PI * 2400 * tt)); }
+    return x; };
+  const ev = [];
+  wf.on('speechstart', e => ev.push({ k: 'start', run: e.run, t: performance.now() }));
+  wf.on('speechend',   e => ev.push({ k: 'end', run: e.run, t: performance.now(), reason: e.reason }));
+  const offUnder = wf.on('underrun', e => ev.push({ k: 'underrun', run: e.run, t: performance.now() }));
+
+  // one second of sound scheduled at an absolute time; when do the lips open and close?
+  async function burst(run, opts) {
+    const p0 = performance.now(), at = Date.now() + 400;
+    wf.pushAudio(voice(1.0), RATE, Object.assign({ at, run, end: true }, opts));
+    const onset = p0 + 400, end = onset + 1000;
+    let tOn = null, tOff = null, speakingMid = null, peak = 0, atEnd = null;
+    while (performance.now() < end + 700) {
+      await frame(); const n = performance.now(), j = g('jawOpen');
+      peak = Math.max(peak, j);
+      if (atEnd === null && n >= end) atEnd = j;
+      if (tOn === null && j >= 0.05) tOn = n;
+      if (speakingMid === null && n > onset + 500) speakingMid = wf.isSpeaking();
+      if (tOn !== null && n > onset + 500 && tOff === null && j < 0.05) tOff = n;
+    }
+    return { on: Math.round(tOn - onset), off: Math.round(tOff - end), openAtEnd: Math.round(100 * atEnd / peak), onset, end, speakingMid };
+  }
+  const flat = await burst('flat', { lead: 0, release: 0 });
+  const b = await burst('lead-default', { lead: 0.08, release: 0.18 });
+  WF.measurements['lips vs sound, no lead, no release:  open / closed, ms'] = `${flat.on} / ${flat.off}  (${flat.openAtEnd}% open as the sound ends)`;
+  WF.measurements['lips vs sound, defaults:             open / closed, ms'] = `${b.on} / ${b.off}  (${b.openAtEnd}% open as the sound ends)`;
+  t.check('the mouth starts to open just before the sound, never more than 40 ms late', b.on >= -110 - F && b.on <= 40 + F, b);
+  t.check('the mouth is at most a third open as the sound ends', b.openAtEnd <= 33, b);
+  t.check('the mouth is closed within 120 ms of the end of the sound', b.off >= -80 - F && b.off <= 120 + F, b);
+  t.check('lead and release move both edges earlier', b.on <= flat.on + F && b.off < flat.off, [flat, b]);
+  t.check('isSpeaking is true mid-utterance and false after', b.speakingMid === true && wf.isSpeaking() === false);
+  const s1 = ev.find(e => e.k === 'start' && e.run === 'lead-default'), e1 = ev.find(e => e.k === 'end' && e.run === 'lead-default');
+  t.check('speechstart fires as the lips start', s1 && Math.abs(s1.t - b.onset) <= 100 + F, s1 && Math.round(s1.t - b.onset));
+  t.check('speechend fires as a flagged run ends, with reason "end"', e1 && e1.reason === 'end' && Math.abs(e1.t - b.end) <= 100 + F, e1 && [e1.reason, Math.round(e1.t - b.end)]);
+  t.check('a flagged run never reports an underrun', !ev.some(e => e.k === 'underrun'), ev.filter(e => e.k === 'underrun'));
+  const unflagged = await burst('no-end-flag', { end: false });
+  WF.measurements['lips vs sound, no `end` flag:        open / closed, ms'] = `${unflagged.on} / ${unflagged.off}  (${unflagged.openAtEnd}% open as the sound ends)`;
+  t.check('without `end` the last word cannot be anticipated: it closes later than a flagged run', unflagged.off > b.off, [unflagged, b]);
+
+  // arrival jitter does not move the lips when chunks carry their play time
+  { const p0 = performance.now(), base = Date.now() + 500, x = voice(1.0), N = Math.round(RATE * 0.1);
+    let tOn = null;
+    const watch = (async () => { while (performance.now() < p0 + 1100) { await frame(); if (tOn === null && g('jawOpen') >= 0.05) tOn = performance.now(); } })();
+    for (let i = 0; i < 10; i++) { await sleep([5, 60, 0, 80, 20, 70, 10, 50, 30, 0][i]); wf.pushAudio(x.subarray(i * N, (i + 1) * N), RATE, { at: base + i * 100, run: 'jitter', end: i === 9 }); }
+    await watch;
+    const on = Math.round(tOn - (p0 + 500));
+    WF.measurements['lips vs sound under arrival jitter, ms'] = on;
+    t.check('with `at`, arrival jitter of up to 80 ms does not shift the onset', on >= -110 - F && on <= 40 + F, on);
+    await until(closed, 3000);
+    t.check('…and ten jittered chunks play as one run: no underrun, one start, one end',
+      ev.filter(e => e.run === 'jitter').map(e => e.k).join(',') === 'start,end', ev.filter(e => e.run === 'jitter'));
+  }
+
+  // an unflagged stream that stops: underrun, then speechend "dry"
+  ev.length = 0;
+  wf.pushAudio(voice(0.4), RATE);
+  await until(() => ev.some(e => e.k === 'end'), 4000);
+  t.check('an unflagged stream that stops reports underrun, then speechend "dry"',
+    ev.map(e => e.k + (e.reason ? ':' + e.reason : '')).join(',') === 'start,underrun,end:dry' && ev[2].t - ev[1].t >= 200, ev);
+  offUnder(); ev.length = 0;
+  wf.pushAudio(voice(0.3), RATE); await until(() => ev.some(e => e.k === 'end'), 4000);
+  t.check('the function on() returns unsubscribes', !ev.some(e => e.k === 'underrun') && ev.length === 2, ev);
+
+  // a person cuts in
+  ev.length = 0;
+  wf.pushAudio(voice(3), RATE, { run: 'cut-me' });
+  await until(() => wf.isSpeaking(), 3000); await sleep(200);
+  const tCut = performance.now(); wf.cutAudio();
+  const endEv = ev.find(e => e.k === 'end');
+  t.check('cutAudio reports speechend "cut" at once', endEv && endEv.reason === 'cut' && endEv.run === 'cut-me' && endEv.t - tCut < 5 && !wf.isSpeaking(), endEv);
+  await until(() => g('jawOpen') < 0.05, 3000);
+  WF.measurements['cut → mouth closed, ms'] = Math.round(performance.now() - tCut);
+  t.check('the mouth is closed within 250 ms of a cut', performance.now() - tCut <= 250 + F, performance.now() - tCut);
+  const late = wf.pushAudio(voice(0.5), RATE, { run: 'cut-me' });
+  await sleep(350);
+  t.check('a chunk of the cut run that lands late is dropped', late === 0 && closed() && !wf.isSpeaking(), [late, g('jawOpen')]);
+  wf.pushAudio(voice(0.4), RATE, { run: 'next', end: true });
+  t.check('the next run speaks', await until(() => wf.isSpeaking(), 3000));
+  await until(closed, 4000);
+  wf.pushAudio(voice(2), RATE, { run: 'a' }); wf.pushAudio(voice(0.2), RATE, { run: 'b' });
+  wf.cutAudio('b');
+  t.check('cutAudio(run) cuts that run and leaves the one speaking', await until(() => wf.isSpeaking(), 3000) && wf.pushAudio(new Int16Array(0), RATE) > 0);
+  wf.detachAudio(); await until(closed, 3000);
+
+  t.check('all of the above ran without one AudioContext', made === 0, made);
+  wf.pushAudio(voice(0.4), RATE, { audible: true, run: 'loud', end: true });
+  t.check('{ audible } is what makes one', made === 1 && await until(() => wf.isSpeaking(), 3000), made);
+  await until(closed, 4000);
+  window.AudioContext = RealAC;
+  wf.dispose();
+});
+
+group('instances', async t => {
+  await sample();
+  const a = mount(), b = mount();
+  a.wf.loadPreset(await preset('asset-th5rha')); b.wf.loadPreset(await preset('asset-ydr7de'));
+  const stop = feeder(a.wf, 1);
+  a.wf.setBehaviour('speak', { glide: 0.1 }); b.wf.setBehaviour('idle', { glide: 0.1 }); b.wf.setMood('happy');
+  await until(() => a.wf.getChannel('jawOpen') > 0.2, 3000);
+  t.check('one face speaks, its neighbour does not', a.wf.getChannel('jawOpen') > 0.2 && b.wf.getChannel('jawOpen') === 0 && b.wf.getChannel('viseme_sil') === 1, [a.wf.getChannel('jawOpen'), b.wf.getChannel('jawOpen')]);
+  t.check('behaviours and moods are per face', a.wf.getBehaviour() === 'speak' && b.wf.getBehaviour() === 'idle' && a.wf.getActiveMood() !== b.wf.getActiveMood());
+  a.wf.defineBehaviours({ only_a: { zoom: 2 } });
+  t.check('recipe tables are per face', a.wf.getBehaviourNames().includes('only_a') && !b.wf.getBehaviourNames().includes('only_a'));
+  stop(); a.wf.dispose();
+  await sleep(200);
+  t.check('disposing one face leaves the other running', b.wf.setBehaviour('attend') === true && await until(() => near(b.cam.radius, 3.3 / 1.35, 0.02), 4000), b.cam.radius);
+  b.wf.dispose();
+});
+
+/* ───────────────────────────── run ───────────────────────────── */
+(async () => {
+  for (const gr of groups) {
+    if (ONLY && !gr.name.includes(ONLY)) continue;
+    say(gr.name, 'head');
+    const t = { check(name, ok, detail) {
+      const r = { group: gr.name, name, ok: !!ok, detail: ok ? '' : JSON.stringify(detail) };
+      WF.results.push(r); say((r.ok ? '  ✓ ' : '  ✗ ') + name + (r.ok ? '' : '  → ' + r.detail), r.ok ? 'ok' : 'bad');
+    } };
+    try { await gr.fn(t); }
+    catch (e) { t.check('group ran to the end', false, String(e && e.stack || e)); }
+  }
+  const bad = WF.results.filter(r => !r.ok).length;
+  say(bad ? `${bad} FAILED of ${WF.results.length}` : `all ${WF.results.length} passed`, bad ? 'bad' : 'ok');
+  WF.done = true;
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+name: test
+
+# The local suite, in CI: a real browser against the real library.
+# Runs on every push and pull request; the publish workflow is separate.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: install
+        run: npm install --no-fund
+
+      - name: build (indented + minified bundles)
+        run: npm run build
+
+      - name: syntax
+        run: node --check wireface.js && node --check dist/wireface.min.js
+
+      - name: suite against wireface.js
+        run: node test/run.mjs
+
+      - name: suite against dist/wireface.min.js
+        run: node test/run.mjs --min

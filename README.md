@@ -88,8 +88,11 @@ interface WireFace {
   getRenderConfig(): object                // snapshot of current renderConfig
   getPreset(): object                      // the face's whole design — the JSON loadPreset() takes
 
-  // lips from audio that is not a loaded file (v1.2)
-  pushAudio(samples, sampleRate, opts?): number   // streamed PCM chunks; returns seconds queued
+  // lips from audio that is not a loaded file (v1.2, on a clock since v1.3)
+  pushAudio(samples, sampleRate, opts?): number   // streamed PCM chunks; opts { at, run, end, delay, lead, release, audible }
+  cutAudio(run?): void                     // a person cut in: drop queued speech, and late chunks of that run
+  isSpeaking(): boolean
+  on(event, fn): () => void                // 'speechstart' | 'speechend' | 'underrun' | 'behaviour'
   attachAudio(source): void                // a MediaStream or AudioNode; never made audible
   detachAudio(): void
   setMuted(bool): void                     // analyse the loaded audio without sounding it
@@ -143,11 +146,25 @@ wf.loadPreset(design);                         // pick a design (background colo
 wf.setBehaviour('listen');                     // named framing — no camera code in your page
 wf.setBehaviour('idle', { side: -1 });         // turned toward whoever holds the floor
 wf.setBehaviour('jump');                       // hops for attention, then returns by itself
-wf.pushAudio(int16Chunk, 22050);               // speech as it streams in — lips match play()
+wf.pushAudio(chunk, 22050, { at, run, end });  // speech as it streams in, on a clock — lips match play()
+wf.cutAudio();                                 // a person cut in
+wf.on('speechstart', () => wf.setBehaviour('speak'));
+wf.on('speechend',   () => wf.setBehaviour('listen'));
 store(wf.getPreset());                         // keep this face's design
 ```
 
-Built-in behaviours: `asleep` `parked` `idle` `waiting` `busy` `listen` `speak` `attend` `important` `cut`, and the shots `point` `distant` `away` `work` `jump` `closeup` `closeup-eyes` `closeup-nose` `closeup-mouth`. Recipes, rules, the stream input and the stored design format are specified in [`SPEC.WIREFACE.BEHAVIOURS.v1.2`](SPEC.WIREFACE.BEHAVIOURS.v1.2.md); [`examples/behaviours.html`](examples/behaviours.html) runs all of it with four faces.
+Streamed speech is analysed the moment a chunk arrives and scheduled against the sound: measured in this repo's suite, the mouth opens 50 ms ahead of the sound, is closed 66 ms after it ends, and closes 83 ms after a cut. [`SPEC.WIREFACE.STREAM.v1.3`](SPEC.WIREFACE.STREAM.v1.3.md) has the contract.
+
+Built-in behaviours: `asleep` `parked` `idle` `waiting` `busy` `listen` `speak` `attend` `important` `cut`, and the shots `point` `distant` `away` `work` `jump` `closeup` `closeup-eyes` `closeup-nose` `closeup-mouth`. Recipes, rules and the stored design format are specified in [`SPEC.WIREFACE.BEHAVIOURS.v1.2`](SPEC.WIREFACE.BEHAVIOURS.v1.2.md); [`examples/behaviours.html`](examples/behaviours.html) runs all of it with four faces.
+
+### Tests
+
+```bash
+npm test             # the suite: a real headless Chrome against wireface.js (Node 22+, no dependencies)
+npm run test:min     # the same checks against the minified build
+```
+
+The suite is [`test/index.html`](test/index.html) — open it in a browser to watch it run. CI runs both on every push.
 
 ---
 

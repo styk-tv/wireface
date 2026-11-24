@@ -6,6 +6,60 @@ Versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-11-24
+
+Streamed speech on a clock. Specified in
+[`SPEC.WIREFACE.STREAM.v1.3`](SPEC.WIREFACE.STREAM.v1.3.md). Additive: every
+1.2 call keeps its signature and meaning.
+
+### Added
+- **The speech timeline.** `pushAudio` now analyses each chunk the moment it
+  arrives — the spectrum an `AnalyserNode` reports, computed on the samples —
+  and schedules the lip frames against the sound. The lips run slightly ahead
+  (`opts.lead`, default 0.08 s) and close *into* a silence they can see coming
+  (`opts.release`, default 0.18 s) instead of after it.
+- **`opts.at`** — the wall-clock time a chunk's first sample sounds. Arrival
+  jitter no longer moves the lips.
+- **Runs.** `opts.run` names the utterance a chunk belongs to, `opts.end`
+  flags its last chunk. **`cutAudio(run?)`** drops queued speech when a person
+  cuts in, and chunks of a cut run that land late are dropped instead of
+  reopening the mouth.
+- **Events.** `on('speechstart' | 'speechend' | 'underrun' | 'behaviour', fn)`
+  returns its unsubscribe function; `isSpeaking()`. `speechend` says whether
+  the run ended, was cut, or ran dry.
+- **A test suite.** `npm test` runs `test/index.html` in a headless Chrome
+  over the DevTools protocol — no dependencies — against the source, and
+  `npm run test:min` against the minified build. CI runs both on every push.
+
+### Changed
+- A silent `pushAudio` creates no `AudioContext`, so no user gesture is
+  needed before the lips move. `{ audible: true }` is what creates one.
+- After `cutAudio()` / `detachAudio()` the mouth closes at three times its
+  normal rate.
+
+### Fixed
+- **Everything ran in slow motion below 20 fps.** The frame time was capped
+  at 50 ms, so glides, hops and lip smoothing fell behind real time on a slow
+  device. The cap is now 250 ms; every update is stable for any step.
+- **A face with `glow: false` still paid for the glow passes** every frame.
+  The layer is switched off when unused: 61 ms → 17 ms per frame for one
+  face under software rendering.
+- **`setView()` did not forget the lasting behaviour**, so a later transient
+  behaviour returned to the framing from before the `setView`.
+
+Measured by the suite on a steady tone, 60 fps (mouth open / closed taken at
+a jaw opening of 0.05, relative to the sound):
+
+| | opens | open as the sound ends | closed | cut → closed |
+|---|---|---|---|---|
+| `lead 0`, `release 0` (how 1.2 behaved) | +34 ms | 100% | +250 ms | 215 ms |
+| 1.3 defaults, run flagged with `end` | −50 ms | 18% | +66 ms | 83 ms |
+| 1.3 defaults, no `end` flag | −48 ms | 49% | +166 ms | 83 ms |
+
+The lips themselves are unchanged: on the bundled sample the live analyser
+gives 3.93 visemes active at once and a mean jaw opening of 0.526; the
+timeline gives 3.92 and 0.529.
+
 ## [1.2.0] — 2026-11-24
 
 Behaviours, stream input and stored designs — for pages that run faces from

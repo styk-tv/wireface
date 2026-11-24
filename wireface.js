@@ -25,8 +25,13 @@
  *   setMuted(bool) / isMuted()    → void/bool (analyse the loaded audio without sounding it)
  *   attachAudio(source)           → void     (lips follow a MediaStream or AudioNode the
  *                                             library does not play; never made audible)
- *   pushAudio(samples, rate, opts?)→ number  (streamed PCM chunks drive the lips; silent
- *                                             unless opts.audible; returns seconds queued)
+ *   pushAudio(samples, rate, opts?)→ number  (streamed PCM chunks drive the lips, on a clock;
+ *                                             opts { at, run, end, delay, lead, audible };
+ *                                             returns seconds queued)
+ *   cutAudio(run?)                → void     (drop queued speech now; late chunks of the run too)
+ *   isSpeaking()                  → bool
+ *   on(event, fn)                 → () => void  ('speechstart','speechend','underrun','behaviour';
+ *                                             returns the unsubscribe function)
  *   detachAudio()                 → void
  *   getPreset()                   → object   (the face's design, as loadPreset() takes it)
  *   setMood(name)                 → void     ('neutral','happy','sad','angry','fear','surprise','sleep')
@@ -251,6 +256,8 @@
   const BEHAVIOUR_RADIUS = 3.3;
   const FOCUS_Y = { face: 0, center: -0.08, eyes: 0.20, nose: -0.05, mouth: -0.38 };
   const HEAD_CHANNELS = { headRotateX: 1, headRotateY: 1, headRotateZ: 1 };
+  const LIP_CHANNELS = { jawOpen: 1 };
+  for (const v of Object.keys(VISEME_PARAMS)) LIP_CHANNELS['viseme_' + v] = 1;
 
   /* ─── module helpers ─────────────────────────────────────────────────── */
 
@@ -261,6 +268,40 @@
       parseInt(h.slice(2, 4), 16) / 255,
       parseInt(h.slice(4, 6), 16) / 255,
     ];
+  }
+
+  /* ── spectrum for the speech timeline ──
+     What an AnalyserNode computes, done here on the samples themselves:
+     fftSize 1024 at 48 kHz, one frame every 800 samples (60 per second),
+     smoothingTimeConstant 0.4. Radix-2 FFT, in place. */
+  const AN_RATE = 48000, FFT_N = 1024, AN_HOP = 800, AN_SMOOTH = 0.4;
+  const HOP_MS = 1000 * AN_HOP / AN_RATE;
+  const FFT_REV = new Uint16Array(FFT_N), FFT_COS = new Float32Array(FFT_N / 2), FFT_SIN = new Float32Array(FFT_N / 2);
+  const BLACKMAN = new Float32Array(FFT_N);
+  for (let i = 0; i < FFT_N; i++) {
+    let r = 0;
+    for (let b = 0; b < 10; b++) r |= ((i >> b) & 1) << (9 - b);
+    FFT_REV[i] = r;
+    BLACKMAN[i] = 0.42 - 0.5 * Math.cos(2 * Math.PI * i / FFT_N) + 0.08 * Math.cos(4 * Math.PI * i / FFT_N);
+  }
+  for (let i = 0; i < FFT_N / 2; i++) { FFT_COS[i] = Math.cos(2 * Math.PI * i / FFT_N); FFT_SIN[i] = Math.sin(2 * Math.PI * i / FFT_N); }
+  function fft(re, im) {
+    for (let i = 0; i < FFT_N; i++) {
+      const j = FFT_REV[i];
+      if (j > i) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+    }
+    for (let size = 2; size <= FFT_N; size <<= 1) {
+      const half = size >> 1, stride = FFT_N / size;
+      for (let i = 0; i < FFT_N; i += size) {
+        for (let j = 0, k = 0; j < half; j++, k += stride) {
+          const c = FFT_COS[k], sn = -FFT_SIN[k];
+          const a = i + j, b = a + half;
+          const tr = re[b] * c - im[b] * sn, ti = re[b] * sn + im[b] * c;
+          re[b] = re[a] - tr; im[b] = im[a] - ti;
+          re[a] += tr; im[a] += ti;
+        }
+      }
+    }
   }
 
   /* ──────────────────────────────────────────────────────────────────────
@@ -1275,6 +1316,7 @@
 
     /* ── channel smoothing + mood blend + idle ── */
     function smoothChannels(dt) {
+      const snapping = tl.snapUntil > performance.now();
       for (const ch of CHANNEL_NAMES) {
         let target = stateTarget[ch];
         if (manualLock[ch]) {
@@ -1286,7 +1328,8 @@
           }
           if (!manualSmooth[ch]) { state[ch] = target; continue; }
         }
-        const k = SMOOTH[ch] || SMOOTH.default;
+        let k = SMOOTH[ch] || SMOOTH.default;
+        if (snapping && LIP_CHANNELS[ch]) k *= 3;
         const a = 1 - Math.exp(-k * dt * 30);
         state[ch] = state[ch] + (target - state[ch]) * a;
       }
@@ -1464,31 +1507,212 @@
       ext = { node, an, sink, owned, keep: keepAnalysing(ctx, an), data: new Uint8Array(an.frequencyBinCount) };
     }
 
+    /* ── the lip analysis, as a pure function of five band energies ──
+       One allocation, two callers: the live analyser (playback, attached
+       audio) and the speech timeline (pushAudio). A lip frame is nine values:
+       [sil, jaw, SS, FF, O, aa, U, E, I]. */
+    const LIP_SLOTS = ['viseme_sil', 'jawOpen', 'viseme_SS', 'viseme_FF', 'viseme_O',
+                       'viseme_aa', 'viseme_U', 'viseme_E', 'viseme_I'];
+    const LIP_SILENT = new Float32Array([1, 0, 0, 0, 0, 0, 0, 0, 0]);
+    function lipFrame(eLow, eMid, eHi, eSib, eAir, out) {
+      out.fill(0);
+      const amp = Math.max(eLow, eMid, eHi, eSib);
+      if (amp < 0.08) { out[0] = 1; return out; }
+      out[1] = amp * 0.7;
+      // Proportional viseme allocation. v1.1.5: previous version was a
+      // winner-takes-all branch tree where viseme_aa fired for any vowel-
+      // like sound with low+mid energy, dominating with avg ~0.77 on TTS
+      // input and leaving the mouth stuck wide-open. This approach instead
+      // distributes amp across visemes by their corresponding band's share
+      // of total energy, so the mouth shape blends through the audio's
+      // formant spectrum frame-by-frame.
+      const totalE = eLow + eMid + eHi + eSib + 1e-6;
+      // Sibilants — sharp, high-energy fricatives. Boost separately because
+      // they need to register as distinct mouth shapes (close lips + teeth)
+      // even at modest absolute energy.
+      if (eSib > 0.20) {
+        out[2] = Math.min(1, eSib * 1.4);
+        if (eAir > 0.20) out[3] = Math.min(0.7, eAir * 0.9);
+      }
+      // Vowels — proportional distribution across F1/F2 bands.
+      // viseme_O uses low energy when low dominates (back rounded vowel).
+      // viseme_aa uses mid energy (open vowel — F1 mid+low balanced).
+      // viseme_E uses mid energy in front vowel range.
+      // viseme_I uses high energy (high F2 = front close vowel).
+      // viseme_U uses low when low dominates AND amp moderate (closed back).
+      const wLow = eLow / totalE, wMid = eMid / totalE, wHi = eHi / totalE;
+      if (eLow > eMid && eLow > 0.18) {
+        // back vowel territory
+        out[4] = Math.min(1, eLow * 1.1 * (eHi < 0.20 ? 1.1 : 0.8));
+        out[5] = Math.min(1, wMid * amp * 1.6);
+        if (eHi < 0.18) out[6] = Math.min(0.7, eLow * 0.9);
+      } else if (eMid >= eLow * 0.9) {
+        // mid / front vowel territory
+        out[5] = Math.min(1, wLow * amp * 1.6);
+        out[7] = Math.min(1, wMid * amp * 1.4);
+        if (eHi > 0.18) out[8] = Math.min(1, wHi * amp * 1.5);
+      }
+      return out;
+    }
+    function applyLipFrame(f) {
+      for (const v of Object.keys(VISEME_PARAMS)) stateTarget['viseme_' + v] = 0;
+      for (let i = 0; i < LIP_SLOTS.length; i++) stateTarget[LIP_SLOTS[i]] = f[i];
+    }
+    /* mean of a byte spectrum over a band, 0..1 */
+    function bandEnergy(data, rate, lo, hi) {
+      const binHz = rate / 2 / data.length;
+      const i0 = Math.max(0, Math.floor(lo / binHz));
+      const i1 = Math.min(data.length - 1, Math.ceil(hi / binHz));
+      let s = 0, n = 0;
+      for (let i = i0; i <= i1; i++) { s += data[i]; n++; }
+      return n ? (s / n) / 255 : 0;
+    }
+    function lipFrameFromSpectrum(data, rate, out) {
+      return lipFrame(bandEnergy(data, rate, 200, 700), bandEnergy(data, rate, 700, 2000),
+                      bandEnergy(data, rate, 2000, 4000), bandEnergy(data, rate, 4000, 8000),
+                      bandEnergy(data, rate, 1500, 5000), out);
+    }
+
+    const _liveFrame = new Float32Array(9);
+    function analyzeAudioFrame() {
+      // attached outside audio takes the lips ahead of the library's own playback
+      const an = ext ? ext.an : (isPlayingFlag ? analyser : null);
+      if (!an) return;
+      const data = ext ? ext.data : audioFreqData;
+      an.getByteFrequencyData(data);
+      applyLipFrame(lipFrameFromSpectrum(data, an.context.sampleRate, _liveFrame));
+    }
+
+    /* ── events ── */
+    const listeners = {};
+    function on(name, fn) {
+      if (typeof fn !== 'function') return () => {};
+      (listeners[name] = listeners[name] || []).push(fn);
+      return () => { const l = listeners[name]; const i = l ? l.indexOf(fn) : -1; if (i >= 0) l.splice(i, 1); };
+    }
+    function emit(name, detail) {
+      const l = listeners[name];
+      if (!l) return;
+      for (const fn of l.slice()) { try { fn(detail); } catch (e) { if (typeof console !== 'undefined') console.error('[wireface] ' + name + ' listener', e); } }
+    }
+
+    /* ── the speech timeline (pushAudio) ──
+       Streamed speech is known before it sounds, so it is not analysed live.
+       Each chunk is analysed the moment it arrives — the same windowed
+       spectrum an AnalyserNode produces, at a fixed 48 kHz / 1024 / 60 frames
+       per second — and the lip frames are placed on the page clock
+       (performance.now) at the time their samples will sound. The render loop
+       reads the frame for now + lead. So: the lips can run slightly ahead of
+       the sound and close with it; a chunk can carry an absolute play time;
+       and a silent stream needs no AudioContext at all. */
+    const tl = {
+      frames: [], head: 0,            // queued lip frames { t, v, run }, time-ordered
+      prev: null,                     // the last frame at or before the clock
+      ring: new Float32Array(FFT_N), ringPos: 0, sinceHop: 0,
+      mag: new Float32Array(FFT_N / 2), bytes: new Uint8Array(FFT_N / 2),
+      re: new Float32Array(FFT_N), im: new Float32Array(FFT_N),
+      end: -1,                        // clock time where the queued audio ends
+      segT0: 0, segN: 0,              // current segment: start time, 48 kHz samples written
+      phase: 0, last: 0, inRate: 0,   // resampler carry between chunks
+      run: undefined, ended: false,   // the run being queued, and whether its last chunk was flagged
+      cut: [],                        // run ids that were cut: their late chunks are dropped
+      active: false, spoke: false, spokeRun: undefined, dry: 0,
+      // Defaults measured at 60 fps on a steady tone: the mouth starts to open
+      // 40 ms before the sound, is 80% closed as the sound ends and under 0.05
+      // 80 ms after it. With lead 0 and release 0 that is +33 ms and +250 ms.
+      lead: 0.08,                     // seconds the lips run ahead of the sound
+      release: 0.18,                  // seconds over which the mouth closes into a known silence
+      snapUntil: 0,                   // after a cut: close fast until this clock time
+      gain: null, sources: [],        // audible chunks
+    };
+    const _mix = new Float32Array(9);
+    const queuedSeconds = () => Math.max(0, (tl.end - performance.now()) / 1000);
+
+    function emitLipFrame(t, run) {
+      // the window an AnalyserNode sees: the latest FFT_N samples, Blackman, |X|/N,
+      // smoothed over time, in dB, mapped −100…−30 dB onto 0…255
+      const re = tl.re, im = tl.im, ring = tl.ring;
+      for (let i = 0; i < FFT_N; i++) { re[i] = ring[(tl.ringPos + i) & (FFT_N - 1)] * BLACKMAN[i]; im[i] = 0; }
+      fft(re, im);
+      const mag = tl.mag, bytes = tl.bytes;
+      for (let k = 0; k < FFT_N / 2; k++) {
+        const m = Math.sqrt(re[k] * re[k] + im[k] * im[k]) / FFT_N;
+        mag[k] = AN_SMOOTH * mag[k] + (1 - AN_SMOOTH) * m;
+        const b = mag[k] > 0 ? Math.floor((255 / 70) * (20 * Math.log10(mag[k]) + 100)) : 0;
+        bytes[k] = b < 0 ? 0 : b > 255 ? 255 : b;
+      }
+      tl.frames.push({ t, run, v: lipFrameFromSpectrum(bytes, AN_RATE, new Float32Array(9)) });
+    }
+
+    function playChunk(f32, rate, startP, run) {
+      ensureAudioCtx();
+      if (!tl.gain) { tl.gain = audioCtx.createGain(); tl.gain.connect(audioCtx.destination); }
+      const buf = audioCtx.createBuffer(1, f32.length, rate);
+      buf.getChannelData(0).set(f32);
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(tl.gain);
+      // page clock → audio clock. getOutputTimestamp pairs the two at the output
+      // device, so the chunk is HEARD at startP; without it, fall back to the
+      // context's own latency figures.
+      let when;
+      const ts = audioCtx.getOutputTimestamp ? audioCtx.getOutputTimestamp() : null;
+      if (ts && ts.performanceTime > 0 && ts.contextTime > 0) when = ts.contextTime + (startP - ts.performanceTime) / 1000;
+      else when = audioCtx.currentTime + (startP - performance.now()) / 1000 - ((audioCtx.outputLatency || 0) + (audioCtx.baseLatency || 0));
+      const late = audioCtx.currentTime - when;
+      if (late <= 0) src.start(when);
+      else if (late < buf.duration) src.start(0, late);
+      else return;
+      const rec = { src, run, startP };
+      tl.sources.push(rec);
+      src.onended = () => { const i = tl.sources.indexOf(rec); if (i >= 0) tl.sources.splice(i, 1); };
+    }
+
+    /* drop queued lip frames and sounding chunks: all of them, or one run's */
+    function dropQueued(run, fromT) {
+      const all = run === undefined;
+      const keep = [];
+      for (let i = tl.head; i < tl.frames.length; i++) {
+        const f = tl.frames[i];
+        if ((all || f.run === run) && (fromT === undefined || f.t >= fromT)) continue;
+        keep.push(f);
+      }
+      tl.frames = keep; tl.head = 0;
+      for (const s of tl.sources.slice()) {
+        if ((all || s.run === run) && (fromT === undefined || s.startP >= fromT)) {
+          try { s.src.onended = null; s.src.stop(); s.src.disconnect(); } catch (_) {}
+          tl.sources.splice(tl.sources.indexOf(s), 1);
+        }
+      }
+    }
+
     /* Streamed speech: PCM chunks handed over as they arrive — no file, no
-       MediaStream. Chunks are queued back to back into the same analyser the
-       built-in playback uses. Silent unless opts.audible, so it can shadow
-       speech that is sounded elsewhere; opts.delay (seconds) is the lead put
-       in front of a run of chunks, to line the lips up with those speakers.
-         samples     Float32Array (−1..1), Int16Array, or an ArrayBuffer of int16
-         sampleRate  of the chunk; any rate, resampled by the audio context
+       MediaStream.
+         samples     Float32Array (−1..1), Int16Array, or an ArrayBuffer of int16; mono
+         sampleRate  of the chunk; any rate
+         opts.at       when the chunk's first sample SOUNDS, in wall-clock ms
+                       (Date.now() scale). Omitted: chunks follow each other,
+                       and a new run starts opts.delay seconds from now.
+         opts.delay    lead before a run that has no `at` (default 0.05)
+         opts.run      an id for the utterance this chunk belongs to. Chunks of
+                       a run that was cut are dropped when they arrive late.
+         opts.end      true on the last chunk of a run: speechend fires exactly
+                       when it has played
+         opts.audible  also sound the chunk (default: silent — the speech is
+                       sounded elsewhere)
+         opts.lead     seconds the lips run ahead of the sound (default 0.08)
+         opts.release  seconds over which the mouth closes into a silence it
+                       can see coming (default 0.18; 0 turns it off)
        Returns the seconds of audio queued ahead, so a sender can pace itself;
-       an empty chunk just reports that figure. */
+       an empty chunk just reports that figure (and may carry `end`). */
     function pushAudio(samples, sampleRate, opts) {
       opts = opts || {};
-      ensureAudioCtx();
-      if (!ext || !ext.feed) {
-        detachAudio();
-        const an = audioCtx.createAnalyser();
-        an.fftSize = 1024;
-        an.smoothingTimeConstant = 0.4;
-        const sink = audioCtx.createGain();
-        an.connect(sink);
-        sink.connect(audioCtx.destination);
-        ext = { node: null, an, sink, owned: true, feed: true, next: 0, keep: keepAnalysing(audioCtx, an), data: new Uint8Array(an.frequencyBinCount) };
+      const run = opts.run;
+      if (run !== undefined && tl.cut.indexOf(run) >= 0) return queuedSeconds();
+      if (!samples || (!samples.length && !samples.byteLength)) {
+        if (opts.end && run === tl.run) tl.ended = true;
+        return queuedSeconds();
       }
-      // an empty chunk only asks how much is queued; it changes nothing
-      if (!samples || !samples.length && !samples.byteLength) return Math.max(0, ext.next - audioCtx.currentTime);
-      ext.sink.gain.value = opts.audible ? 1 : 0;
       let f32 = samples;
       if (!(samples instanceof Float32Array)) {
         const i16 = (samples instanceof Int16Array) ? samples
@@ -1496,20 +1720,135 @@
         f32 = new Float32Array(i16.length);
         for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
       }
-      const now = audioCtx.currentTime;
-      const buf = audioCtx.createBuffer(1, f32.length, sampleRate || audioCtx.sampleRate);
-      buf.getChannelData(0).set(f32);
-      const src = audioCtx.createBufferSource();
-      src.buffer = buf;
-      src.connect(ext.an);
-      // a new run (first chunk, or after the queue ran dry) starts after the lead
-      if (ext.next < now) ext.next = now + Math.max(0, num(opts.delay, 0.05));
-      src.start(ext.next);
-      ext.next += buf.duration;
-      return ext.next - now;
+      const rate = sampleRate > 0 ? sampleRate : AN_RATE;
+      if (typeof opts.lead === 'number') tl.lead = Math.max(0, Math.min(0.5, opts.lead));
+      if (typeof opts.release === 'number') tl.release = Math.max(0, Math.min(0.5, opts.release));
+      const nowP = performance.now();
+
+      // where this chunk starts on the page clock
+      let start;
+      if (typeof opts.at === 'number' && isFinite(opts.at)) start = nowP + (opts.at - Date.now());
+      else start = tl.end > nowP ? tl.end : nowP + Math.max(0, num(opts.delay, 0.05)) * 1000;
+      // a chunk that follows the previous one (within 40 ms) continues its
+      // segment: the analysis window and the resampler carry across the seam
+      if (run === tl.run && rate === tl.inRate && tl.end > 0 && Math.abs(start - tl.end) < 40) start = tl.end;
+      else {
+        if (start < tl.end) dropQueued(undefined, start);      // an earlier play time replaces what was queued after it
+        tl.ring.fill(0); tl.ringPos = 0; tl.sinceHop = 0; tl.mag.fill(0);
+        tl.phase = 0; tl.last = 0; tl.inRate = rate;
+        tl.segT0 = start; tl.segN = 0;
+        if (run !== tl.run) { tl.run = run; tl.ended = false; }
+      }
+
+      // resample to 48 kHz (linear), sliding the analysis window; one lip frame per hop
+      const step = rate / AN_RATE;
+      const ring = tl.ring, n = f32.length;
+      let pos = tl.phase;                       // in input samples; −1…0 reaches back to the previous chunk
+      while (pos < n - 1) {
+        let s;
+        if (pos < 0) s = tl.last * -pos + f32[0] * (1 + pos);
+        else { const i = pos | 0, fr = pos - i; s = f32[i] * (1 - fr) + f32[i + 1] * fr; }
+        ring[tl.ringPos] = s; tl.ringPos = (tl.ringPos + 1) & (FFT_N - 1);
+        tl.segN++;
+        if (++tl.sinceHop === AN_HOP) { tl.sinceHop = 0; emitLipFrame(tl.segT0 + tl.segN * 1000 / AN_RATE, run); }
+        pos += step;
+      }
+      tl.phase = pos - n; tl.last = f32[n - 1];
+
+      const dur = n / rate * 1000;
+      if (opts.audible) playChunk(f32, rate, start, run);
+      tl.end = start + dur;
+      if (opts.end) tl.ended = true;
+      tl.active = true; tl.dry = 0;
+      return queuedSeconds();
+    }
+
+    /* Stop streamed speech now — a person cut in. With no argument: everything
+       queued is dropped. With a run id: that run only. Either way the run is
+       remembered as cut, so chunks of it still on the wire are dropped when
+       they land. */
+    function cutAudio(run) {
+      const id = run !== undefined ? run : tl.run;
+      if (id !== undefined && tl.cut.indexOf(id) < 0) { tl.cut.push(id); if (tl.cut.length > 256) tl.cut.shift(); }
+      dropQueued(run);
+      if (run === undefined || run === tl.run) {
+        // the queue now ends where what is left of other runs ends
+        const lastLeft = tl.frames.length ? tl.frames[tl.frames.length - 1] : null;
+        tl.end = lastLeft ? lastLeft.t : -1;
+        tl.ended = false; tl.run = lastLeft ? lastLeft.run : undefined; tl.inRate = 0;
+      }
+      if (tl.spoke && (run === undefined || run === tl.spokeRun)) {
+        tl.spoke = false; tl.prev = null;
+        tl.snapUntil = performance.now() + 400;      // sound stopped dead: so does the mouth
+        silenceLips();
+        emit('speechend', { run: tl.spokeRun, reason: 'cut' });
+      }
+      if (tl.head >= tl.frames.length && !tl.spoke) { tl.active = false; tl.prev = null; if (!isPlayingFlag && !ext) silenceLips(); }
+    }
+
+    /* the lips for this moment, from the timeline. Returns true while it owns them. */
+    function updateSpeech(nowP) {
+      if (!tl.active) return false;
+      const t = nowP + tl.lead * 1000;
+      const frames = tl.frames;
+      while (tl.head < frames.length && frames[tl.head].t <= t) tl.prev = frames[tl.head++];
+      if (tl.head > 512) { frames.splice(0, tl.head); tl.head = 0; }
+      const prev = tl.prev, next = frames[tl.head];
+      const fresh = prev && t - prev.t < 2.5 * HOP_MS;
+      let f = LIP_SILENT;
+      if (fresh) {
+        f = prev.v;
+        if (next && next.t - prev.t < 2.5 * HOP_MS) {       // between two frames: blend, so any frame rate reads smoothly
+          const a = (t - prev.t) / (next.t - prev.t);
+          for (let i = 0; i < 9; i++) _mix[i] = prev.v[i] + (next.v[i] - prev.v[i]) * a;
+          f = _mix;
+        }
+      }
+      // Closing into silence. The channels are smoothed, so a mouth told to
+      // close when the sound stops is still open ~200 ms later. The timeline
+      // knows the silence is coming: over the last `release` seconds before
+      // it, the open shapes taper off, and the mouth is shut as the sound ends.
+      if (fresh && f[0] < 0.5 && tl.release > 0) {
+        const R = tl.release * 1000;
+        let toSilence = Infinity, lastT = prev.t;
+        for (let i = tl.head; i < frames.length; i++) {
+          const fr = frames[i];
+          if (fr.t - t > R || fr.t - lastT > 2.5 * HOP_MS) { if (fr.t - lastT > 2.5 * HOP_MS) toSilence = lastT + HOP_MS - t; lastT = -1; break; }
+          if (fr.v[0] >= 0.5) { toSilence = fr.t - t; lastT = -1; break; }
+          lastT = fr.t;
+        }
+        // the queue ends inside the window: silence follows only if the run was flagged as ended
+        if (lastT >= 0 && tl.ended && prev.run === tl.run) toSilence = lastT + HOP_MS - t;
+        if (toSilence < R) {
+          const k = Math.max(0, toSilence / R);
+          if (f !== _mix) { _mix.set(f); f = _mix; }
+          for (let i = 1; i < 9; i++) _mix[i] *= k;
+        }
+      }
+      applyLipFrame(f);
+
+      if (fresh) {
+        tl.dry = 0;
+        if (tl.spoke && prev.run !== tl.spokeRun) { tl.spoke = false; emit('speechend', { run: tl.spokeRun, reason: 'end' }); }
+        if (!tl.spoke && f[0] < 0.5) { tl.spoke = true; tl.spokeRun = prev.run; emit('speechstart', { run: prev.run }); }
+        return true;
+      }
+      if (next) return true;                                 // a gap before audio scheduled later: silent, still ours
+      // nothing left to say
+      if (tl.spoke) {
+        const flagged = tl.ended && tl.spokeRun === tl.run;
+        if (!flagged && !tl.dry) { tl.dry = nowP; emit('underrun', { run: tl.spokeRun }); }
+        if (flagged || nowP - tl.dry > 250) {
+          tl.spoke = false;
+          emit('speechend', { run: tl.spokeRun, reason: flagged ? 'end' : 'dry' });
+        } else return true;                                  // dry, but the run may still be coming
+      }
+      tl.active = false; tl.prev = null;
+      return false;
     }
 
     function detachAudio() {
+      cutAudio();
       if (!ext) return;
       if (ext.node) { try { ext.node.disconnect(ext.an); } catch (_) {} }
       if (ext.keep) { try { ext.keep.stop(); ext.keep.disconnect(); } catch (_) {} }
@@ -1523,81 +1862,6 @@
       if (!audioCtx || !audioBuffer) return 0;
       if (isPlayingFlag) return audioCtx.currentTime - audioStartCtxTime;
       return pausedAt || 0;
-    }
-
-    let _anData = null, _anRate = 48000;   // the frame being analysed
-    function freqEnergyHz(lo, hi) {
-      if (!_anData) return 0;
-      const binHz = _anRate / 2 / _anData.length;
-      const i0 = Math.max(0, Math.floor(lo / binHz));
-      const i1 = Math.min(_anData.length - 1, Math.ceil(hi / binHz));
-      let s = 0, n = 0;
-      for (let i = i0; i <= i1; i++) { s += _anData[i]; n++; }
-      return n ? (s / n) / 255 : 0;
-    }
-
-    function analyzeAudioFrame() {
-      // attached outside audio takes the lips while it is attached
-      let src = ext;
-      // a chunk stream whose queue has run dry is silence, whatever its analyser still holds
-      if (src && src.feed && src.an.context.currentTime > src.next + 0.05) src = null;
-      const an = src ? src.an : (isPlayingFlag ? analyser : null);
-      if (!an) { if (ext) silenceLips(); return; }
-      _anData = src ? src.data : audioFreqData;
-      _anRate = an.context.sampleRate;
-      an.getByteFrequencyData(_anData);
-      // overall amplitude
-      const eLow = freqEnergyHz(200, 700);
-      const eMid = freqEnergyHz(700, 2000);
-      const eHi  = freqEnergyHz(2000, 4000);
-      const eSib = freqEnergyHz(4000, 8000);
-      const eAir = freqEnergyHz(1500, 5000);
-      const amp = Math.max(eLow, eMid, eHi, eSib);
-      if (amp < 0.08) {
-        for (const v of Object.keys(VISEME_PARAMS)) stateTarget['viseme_' + v] = 0;
-        stateTarget.viseme_sil = 1;
-        stateTarget.jawOpen = 0;
-        return;
-      }
-      stateTarget.viseme_sil = 0;
-      stateTarget.jawOpen = amp * 0.7;
-      // Reset all visemes
-      for (const v of Object.keys(VISEME_PARAMS)) {
-        if (v !== 'sil') stateTarget['viseme_' + v] = 0;
-      }
-      // Proportional viseme allocation. v1.1.5: previous version was a
-      // winner-takes-all branch tree where viseme_aa fired for any vowel-
-      // like sound with low+mid energy, dominating with avg ~0.77 on TTS
-      // input and leaving the mouth stuck wide-open. This approach instead
-      // distributes amp across visemes by their corresponding band's share
-      // of total energy, so the mouth shape blends through the audio's
-      // formant spectrum frame-by-frame.
-      const totalE = eLow + eMid + eHi + eSib + 1e-6;
-      // Sibilants — sharp, high-energy fricatives. Boost separately because
-      // they need to register as distinct mouth shapes (close lips + teeth)
-      // even at modest absolute energy.
-      if (eSib > 0.20) {
-        stateTarget.viseme_SS = Math.min(1, eSib * 1.4);
-        if (eAir > 0.20) stateTarget.viseme_FF = Math.min(0.7, eAir * 0.9);
-      }
-      // Vowels — proportional distribution across F1/F2 bands.
-      // viseme_O uses low energy when low dominates (back rounded vowel).
-      // viseme_aa uses mid energy (open vowel — F1 mid+low balanced).
-      // viseme_E uses mid energy in front vowel range.
-      // viseme_I uses high energy (high F2 = front close vowel).
-      // viseme_U uses low when low dominates AND amp moderate (closed back).
-      const wLow = eLow / totalE, wMid = eMid / totalE, wHi = eHi / totalE;
-      if (eLow > eMid && eLow > 0.18) {
-        // back vowel territory
-        stateTarget.viseme_O  = Math.min(1, eLow * 1.1 * (eHi < 0.20 ? 1.1 : 0.8));
-        stateTarget.viseme_aa = Math.min(1, wMid * amp * 1.6);
-        if (eHi < 0.18) stateTarget.viseme_U = Math.min(0.7, eLow * 0.9);
-      } else if (eMid >= eLow * 0.9) {
-        // mid / front vowel territory
-        stateTarget.viseme_aa = Math.min(1, wLow * amp * 1.6);
-        stateTarget.viseme_E  = Math.min(1, wMid * amp * 1.4);
-        if (eHi > 0.18) stateTarget.viseme_I = Math.min(1, wHi * amp * 1.5);
-      }
     }
 
     /* ── color application ──
@@ -1679,9 +1943,14 @@
       orbiting = false;
       const v = VIEWS[view];
       if (!v) return;
-      // a fixed view ends any behaviour framing (its dim and mood stay)
+      // a fixed view ends any behaviour framing (its dim and mood stay), and
+      // is what a later transient behaviour returns to
       behGliding = false;
       behName = null;
+      behBase = null;
+      clearTimeout(behTimer);
+      behTimer = null;
+      behPendingBack = null;
       camera.target.y = 0;
       camera.alpha  = v.alpha;
       camera.beta   = v.beta;
@@ -1742,7 +2011,7 @@
       pose.ty    = camera.target.y;
     }
 
-    function setBehaviour(name, opts) {
+    function setBehaviour(name, opts, _quiet) {
       opts = opts || {};
       // a transient interrupted by another one still returns to the original place
       const pending = behTimer ? behPendingBack : null;
@@ -1756,6 +2025,7 @@
         poseTarget.dim = 1; poseTarget.ty = 0;
         behGlideNow = num(opts.glide, behGlide);
         behName = null; behBase = null; behGliding = true;
+        if (!_quiet) emit('behaviour', { name: null });
         return true;
       }
       const r = (typeof name === 'object') ? name : behaviours[name];
@@ -1793,11 +2063,13 @@
           behPendingBack = null;
           if (_disposed) return;
           const keep = behBase;
-          setBehaviour(back.recipe, back.opts);
+          setBehaviour(back.recipe, back.opts, true);
           behBase = keep;
           if (!keep) behName = null;
+          emit('behaviour', { name: behName, returned: true });
         }, lasts * 1000);
       }
+      if (!_quiet) emit('behaviour', { name: behName });
       return true;
     }
 
@@ -1840,6 +2112,9 @@
 
     function applyGlow() {
       glowLayer.intensity = config.glow ? 0.85 : 0;
+      // an effect layer at intensity 0 still renders its passes every frame;
+      // switch it off entirely when the face has no glow
+      glowLayer.isEnabled = !!config.glow;
     }
 
     /* ── initial build ── */
@@ -1866,10 +2141,15 @@
     engine.runRenderLoop(() => {
       if (_disposed) return;
       const now = performance.now();
-      const dt = Math.min(0.05, (now - lastT) / 1000);
+      // Real elapsed time, so glides, hops and lip smoothing keep their pace
+      // on a slow device (every update here is an exponential approach or a
+      // function of time — stable for any step). The cap only swallows the
+      // jump after a hidden tab or a stall. Until v1.2.0 it was 0.05, which
+      // ran everything in slow motion below 20 fps.
+      const dt = Math.min(0.25, (now - lastT) / 1000);
       lastT = now;
       idleAnimate(dt);
-      if (isPlayingFlag || ext) analyzeAudioFrame();
+      if (!updateSpeech(now) && (isPlayingFlag || ext)) analyzeAudioFrame();
       updateMoodBlend(dt);
       smoothChannels(dt);
       updateFace();
@@ -1968,7 +2248,7 @@
       stop() {
         pausedAt = 0;
         stopPlayback();
-        if (!ext) silenceLips();
+        if (!ext && !tl.active) silenceLips();
       },
       setLoop(b)        { config.loopAudio = !!b; if (audioSource) audioSource.loop = !!b; },
       /* muted playback still drives the lips: use it when the same speech is
@@ -1977,7 +2257,10 @@
       isMuted()         { return muted; },
       attachAudio,
       pushAudio,
+      cutAudio,
       detachAudio,
+      isSpeaking()      { return tl.spoke; },
+      on,
       setMood(name) {
         if (!MOODS[name]) return;
         personaMood = name;
