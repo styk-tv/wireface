@@ -3,6 +3,10 @@ name: publish
 # Triggers npm publish on either:
 #   1. push of a version tag like v1.0.0  (recommended — git tag drives release)
 #   2. manual run from the Actions tab    (workflow_dispatch)
+#
+# Authentication is npm trusted publishing (OIDC): npmjs.com trusts this
+# repository's publish.yml, and the job's id-token proves it is that workflow.
+# No npm token is stored anywhere. Requires npm >= 11.5.1 and Node >= 22.14.
 on:
   push:
     tags:
@@ -12,16 +16,21 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
-      id-token: write   # for npm provenance
+      id-token: write   # the OIDC token npm exchanges for a publish credential; also signs provenance
     steps:
       - uses: actions/checkout@v7
 
+      # No registry-url: it would write an .npmrc that expects NODE_AUTH_TOKEN,
+      # and a token there can stand in front of the OIDC exchange.
       - uses: actions/setup-node@v7
         with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
+          node-version: '24'
+
+      - name: npm that publishes through OIDC
+        run: npm install -g npm@11 && npm --version
 
       - name: install
         run: npm install --no-audit --no-fund
@@ -39,7 +48,15 @@ jobs:
             exit 1
           fi
 
+      # The bundles that are about to ship pass the suite first.
+      - name: syntax
+        run: node --check wireface.js && node --check dist/wireface.min.js
+
+      - name: suite against wireface.js
+        run: node test/run.mjs
+
+      - name: suite against dist/wireface.min.js
+        run: node test/run.mjs --min
+
       - name: publish
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

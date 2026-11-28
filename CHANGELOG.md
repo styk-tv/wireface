@@ -36,6 +36,8 @@ Streamed speech on a clock. Specified in
   needed before the lips move. `{ audible: true }` is what creates one.
 - After `cutAudio()` / `detachAudio()` the mouth closes at three times its
   normal rate.
+- Releases reach npm through trusted publishing (OIDC), so no npm token is
+  stored, and only after the suite passes on the exact bundles being shipped.
 
 ### Fixed
 - **Everything ran in slow motion below 20 fps.** The frame time was capped
@@ -73,6 +75,9 @@ Behaviours, stream input and stored designs — for pages that run faces from
 live events and streamed speech. Specified in
 [`SPEC.WIREFACE.BEHAVIOURS.v1.2`](SPEC.WIREFACE.BEHAVIOURS.v1.2.md). Additive:
 every 1.1.5 call keeps its signature.
+
+**Tagged, not on npm.** The registry refused the tag's publish run (an expired
+npm token). 1.3.0 is the first npm release that contains this work.
 
 ### Added
 - **Behaviours — named framing.** `setBehaviour(name, opts?)` glides a face
